@@ -23,6 +23,43 @@ bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
 ```
 
+---
+
+## Graph-Tracked Training Loop Specifications
+
+This project implements an agentic, graph-tracked training loop for fine-tuning [`convaiinnovations/laya`](https://huggingface.co/convaiinnovations/laya).
+
+### Loop Operating Rules
+1. **Static Foundation**: The model architecture, training infrastructure (`train_runner.py`), and evaluation benchmark dataset splits are kept static.
+2. **Dynamic Variables**: The loop dynamically varies dataset choices, training sequence/mix, learning rates, epochs, and search queries for HuggingFace datasets.
+3. **Local LLM Integration**: The loop controller queries a local OpenAI-compatible endpoint at `http://10.209.1.159:8080/v1` for strategy decisions.
+4. **Evaluation & Rollback**:
+   - Evaluation phase executes at the end of each pass.
+   - **Net Positive**: Macro F1 improvement promotes the new checkpoint to `checkpoints/best_head.safetensors` and resets stagnation.
+   - **Net Negative / Neutral**: Reverts model state to `checkpoints/best_head.safetensors` and increments stagnation counter.
+5. **Exit Conditions**:
+   - Total cycles > 20
+   - Non-improvement over 5 consecutive cycles
+   - Unrecoverable training failure
+
+### Core Components & Entry Points
+- Entry point: `uv run python main.py`
+- Loop orchestrator: `loop.py`
+- Training runner: `train_runner.py`
+- Dataset ingestion: `dataset_loader.py`
+- HF Dataset Search: `hf_search.py` (`/usr/bin/hf` CLI + Python API)
+- LLM Controller: `llm_controller.py`
+
+---
+
+## Tooling & Execution Guidelines
+
+- **Package Management**: Use `uv` exclusively for dependency management (`uv sync`, `uv run python ...`).
+- **PyTorch Engine**: Configured to use PyTorch CPU wheel (`torch>=2.14.0` via `https://download.pytorch.org/whl/cpu`) to ensure memory safety on small GPU/RAM environments.
+- **Git Version Control**: Remote `origin` points to `https://github.com/jtatman/graph-loop-train.git`. Always report changed files and status cleanly before committing/pushing.
+
+---
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
@@ -40,12 +77,6 @@ rm -f file                  # NOT: rm file
 rm -rf directory            # NOT: rm -r directory
 cp -rf source dest          # NOT: cp -r source dest
 ```
-
-**Other commands that may prompt:**
-- `scp` - use `-o BatchMode=yes` for non-interactive
-- `ssh` - use `-o BatchMode=yes` to fail instead of prompting
-- `apt-get` - use `-y` flag
-- `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:1105d646 -->
 ## Beads Issue Tracker

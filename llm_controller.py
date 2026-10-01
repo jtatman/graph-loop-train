@@ -1,0 +1,111 @@
+"""
+Local LLM Controller for Graph Loop Training.
+Communicates with local OpenAI-compatible endpoint (http://10.209.1.159:8080/v1)
+to decide next training hyperparameters, dataset choices, or dataset search queries.
+"""
+
+import json
+import requests
+from typing import Dict, Any, List
+
+DEFAULT_LLM_ENDPOINT = "http://10.209.1.159:8080/v1/chat/completions"
+
+SYSTEM_PROMPT = """You are the AI Orchestrator for a Graph-Tracked Fine-Tuning Loop optimizing the 'convaiinnovations/laya' decision model.
+
+Your goal: Maximize the model's macro F1 score on a gold classification benchmark.
+
+Loop Constraints:
+1. The model architecture, training software, and evaluation set are static.
+2. You can vary dataset choices, learning rate (1e-5 to 1e-4), epochs (3 to 10), and search HuggingFace for new datasets.
+3. Available primary datasets:
+   - 'tdavidson/hate_speech_offensive' (baseline benchmark)
+   - 'dnagpt/laya-bio'
+   - 'SargeDev/jev-distill-corpus-v3'
+
+You must respond ONLY with a valid JSON object matching this schema:
+{
+  "action": "train" | "search_hf",
+  "dataset_name": "<name of dataset to train on>",
+  "search_query": "<search query string if action is search_hf>",
+  "lr": 3e-5,
+  "epochs": 6,
+  "batch_size": 16,
+  "reasoning": "<short explanation of your decision>"
+}
+"""
+
+def get_next_loop_decision(
+    cycle: int,
+    history: List[Dict[str, Any]],
+    best_macro_f1: float,
+    available_datasets: List[str],
+    endpoint_url: str = DEFAULT_LLM_ENDPOINT,
+    timeout: int = 15,
+) -> Dict[str, Any]:
+    """
+    Query local LLM endpoint for next loop action decision.
+    Falls back to deterministic cycle strategy if endpoint fails.
+    """
+    user_prompt = f"""Cycle #: {cycle}
+Current Best Gold Macro F1: {best_macro_f1:.4f}
+Known Available Datasets: {json.dumps(available_datasets)}
+
+Recent Cycle History (last 5 passes):
+{json.dumps(history[-5:], indent=2)}
+
+Decide the next action for Cycle #{cycle}."""
+
+    payload = {
+        "model": "local-model",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 300,
+    }
+
+    try:
+        response = requests.post(endpoint_url, json=payload, timeout=timeout)
+        if response.status_code == 200:
+            data = response.json()
+            content = data["choices"][0]["message"]["content"].strip()
+            # Extract JSON if surrounded by markdown code blocks
+            if "```" in content:
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:].strip()
+            decision = json.loads(content)
+            print(f"[llm_controller] LLM Decision: {decision.get('reasoning')}")
+            return decision
+        else:
+            print(f"[llm_controller] LLM API status {response.status_code}: {response.text[:100]}")
+    except Exception as e:
+        print(f"[llm_controller] Local LLM endpoint unreachable ({e}). Using heuristic fallback.")
+
+    # Heuristic fallback strategy if local LLM server is offline/unresponsive
+    candidate_datasets = ["tdavidson/hate_speech_offensive", "dnagpt/laya-bio", "SargeDev/jev-distill-corpus-v3"]
+    dataset = candidate_datasets[cycle % len(candidate_datasets)]
+    lrs = [3e-5, 5e-5, 2e-5]
+    lr = lrs[cycle % len(lrs)]
+    epochs = 5 + (cycle % 3)
+
+    return {
+        "action": "train",
+        "dataset_name": dataset,
+        "search_query": "",
+        "lr": lr,
+        "epochs": epochs,
+        "batch_size": 16,
+        "reasoning": f"Heuristic fallback: cycle {cycle} targeting dataset '{dataset}' with lr={lr}, epochs={epochs}.",
+    }
+
+if __name__ == "__main__":
+    test_decision = get_next_loop_decision(
+        cycle=1,
+        history=[],
+        best_macro_f1=0.75,
+        available_datasets=["tdavidson/hate_speech_offensive", "dnagpt/laya-bio", "SargeDev/jev-distill-corpus-v3"],
+    )
+    print("Decision Output:")
+    print(json.dumps(test_decision, indent=2))

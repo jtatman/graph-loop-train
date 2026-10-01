@@ -5,3 +5,19 @@
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# Python & Environment
+.venv/
+.uv_cache/
+.uv_python/
+__pycache__/
+*.pyc
+
+# Model & Training Data
+output/
+checkpoints/
+base_model/
+source.parquet
+*.safetensors
+*.parquet
+
