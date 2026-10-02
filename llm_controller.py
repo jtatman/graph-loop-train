@@ -40,7 +40,7 @@ def get_next_loop_decision(
     best_macro_f1: float,
     available_datasets: List[str],
     endpoint_url: str = DEFAULT_LLM_ENDPOINT,
-    timeout: int = 15,
+    timeout: int = 120,
 ) -> Dict[str, Any]:
     """
     Query local LLM endpoint for next loop action decision.
