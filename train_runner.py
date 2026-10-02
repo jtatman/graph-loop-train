@@ -172,7 +172,10 @@ def train_head_micro_batch(
             if has_soft_targets:
                 soft_list = [items[i]["soft_target"] for i in chunk if items[i]["soft_target"] is not None]
                 if len(soft_list) == len(chunk):
-                    soft_batch = torch.tensor(np.array(soft_list), dtype=torch.float32)
+                    max_len = max(len(st) for st in soft_list)
+                    padded_soft = [list(st) + [0.0] * (max_len - len(st)) for st in soft_list]
+                    soft_batch = torch.tensor(padded_soft, dtype=torch.float32)
+
 
             optimizer.zero_grad(set_to_none=True)
             loss = compute_loss(head(h, b), b["label"], soft_targets=soft_batch, class_weights=weights)
@@ -208,7 +211,10 @@ def train_head_micro_batch(
             if has_soft_targets:
                 soft_list = [items[i]["soft_target"] for i in chunk if items[i]["soft_target"] is not None]
                 if len(soft_list) == len(chunk):
-                    soft_batch = torch.tensor(np.array(soft_list), dtype=torch.float32)
+                    max_len = max(len(st) for st in soft_list)
+                    padded_soft = [list(st) + [0.0] * (max_len - len(st)) for st in soft_list]
+                    soft_batch = torch.tensor(padded_soft, dtype=torch.float32)
+
 
             optimizer_refit.zero_grad(set_to_none=True)
             loss = compute_loss(head_refit(h, b), b["label"], soft_targets=soft_batch, class_weights=weights)
