@@ -1,7 +1,7 @@
 """
-Dataset Loader & Schema Normalizer for Graph Loop Training.
-Supports local source.parquet baseline, target datasets (dnagpt/laya-bio, SargeDev/jev-distill-corpus-v3),
-and generic HuggingFace classification datasets.
+Dataset Loader & Micro-Batch Sample Ledger for Graph Loop Training.
+Supports micro-batch sharding, non-overlapping sample tracking, soft target distributions
+for JEV distillation (SargeDev/jev-distill-corpus-v3), and domain datasets (dnagpt/laya-bio).
 """
 
 import os
@@ -9,6 +9,7 @@ import html
 import re
 import unicodedata
 from pathlib import Path
+from typing import Set, Tuple, List, Optional
 from urllib.request import urlopen
 import pandas as pd
 import numpy as np
@@ -22,8 +23,12 @@ def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", html.unescape(text))
     return re.sub(r"\s+", " ", text).strip().casefold()
 
-def load_baseline_dataset(source_path: str = "source.parquet") -> pd.DataFrame:
-    """Load the default benchmark baseline dataset (tdavidson/hate_speech_offensive)."""
+def load_baseline_dataset(
+    source_path: str = "source.parquet",
+    micro_batch_size: int = 300,
+    seen_ids: Optional[Set[str]] = None,
+) -> Tuple[pd.DataFrame, List[str]]:
+    """Load micro-batch partition from baseline dataset, filtering out seen sample IDs."""
     source = Path(source_path)
     if not source.exists():
         print(f"[dataset_loader] Downloading baseline parquet from {DEFAULT_SOURCE_URL}...")
@@ -32,69 +37,105 @@ def load_baseline_dataset(source_path: str = "source.parquet") -> pd.DataFrame:
     df = pd.read_parquet(source)
     if "tweet" not in df.columns or "class" not in df.columns:
         raise ValueError(f"Unexpected columns in baseline dataset: {df.columns}")
-    return df
 
-def load_hf_dataset(dataset_name: str, max_samples: int = 20000) -> pd.DataFrame:
+    df["sample_id"] = [f"base_{i}" for i in range(len(df))]
+    if seen_ids:
+        df = df[~df["sample_id"].isin(seen_ids)].reset_index(drop=True)
+
+    if micro_batch_size and len(df) > micro_batch_size:
+        # Sample micro-batch cleanly while preserving columns
+        df = df.sample(n=micro_batch_size, random_state=42).reset_index(drop=True)
+
+
+    df["kind"] = "choice"
+    df["target"] = None  # Hard target class
+    batch_ids = df["sample_id"].tolist()
+    return df[["sample_id", "tweet", "class", "target", "kind"]], batch_ids
+
+def load_hf_dataset(
+    dataset_name: str,
+    micro_batch_size: int = 300,
+    seen_ids: Optional[Set[str]] = None,
+) -> Tuple[pd.DataFrame, List[str]]:
     """
-    Load a dataset from HuggingFace Hub or local parquet and normalize
-    columns to ('tweet', 'class').
+    Load micro-batch partition from HuggingFace Hub dataset or baseline.
+    Parses soft target distributions for JEV distillation datasets.
     """
     if dataset_name.lower() in ("baseline", "default", "tdavidson/hate_speech_offensive"):
-        return load_baseline_dataset()
+        return load_baseline_dataset(micro_batch_size=micro_batch_size, seen_ids=seen_ids)
 
     try:
         from datasets import load_dataset
         print(f"[dataset_loader] Loading HF dataset: '{dataset_name}'...")
         ds = load_dataset(dataset_name, split="train")
         df = ds.to_pandas()
-        if max_samples and len(df) > max_samples:
-            df = df.sample(n=max_samples, random_state=42).reset_index(drop=True)
+
+        # Generate or extract persistent sample_ids
+        if "id" in df.columns:
+            df["sample_id"] = df["id"].astype(str)
+        else:
+            df["sample_id"] = [f"{dataset_name.replace('/', '_')}_{i}" for i in range(len(df))]
+
+        if seen_ids:
+            unseen_mask = ~df["sample_id"].isin(seen_ids)
+            df = df[unseen_mask].reset_index(drop=True)
+
+        if len(df) == 0:
+            print(f"[dataset_loader] All samples in '{dataset_name}' already processed! Loading fallback baseline micro-batch.")
+            return load_baseline_dataset(micro_batch_size=micro_batch_size, seen_ids=seen_ids)
 
         # Identify text column
         text_col = None
-        for col in ["tweet", "text", "sentence", "input", "content", "document", "message"]:
+        for col in ["state", "tweet", "text", "sequence", "sentence", "input", "content"]:
             if col in df.columns:
                 text_col = col
                 break
         if text_col is None:
-            # Pick first string column
             for col in df.columns:
                 if df[col].dtype == object or isinstance(df[col].iloc[0], str):
                     text_col = col
                     break
         if text_col is None:
-            raise ValueError(f"Could not find suitable text column in dataset '{dataset_name}' with columns {df.columns.tolist()}")
+            raise ValueError(f"No suitable text column in '{dataset_name}' with columns {df.columns.tolist()}")
 
-        # Identify label column
-        label_col = None
-        for col in ["class", "label", "target", "labels", "category", "sentiment"]:
-            if col in df.columns:
-                label_col = col
-                break
-        if label_col is None:
-            for col in df.columns:
-                if col != text_col and (pd.api.types.is_numeric_dtype(df[col]) or pd.api.types.is_categorical_dtype(df[col])):
+        # Check for JEV soft target probability distribution ('target' column with floats/lists)
+        has_soft_target = False
+        if "target" in df.columns and isinstance(df["target"].iloc[0], (list, np.ndarray)):
+            has_soft_target = True
+            df["kind"] = df.get("kind", "score")
+            # Create hard class argmax as backup label
+            df["class"] = [int(np.argmax(t)) % 3 for t in df["target"]]
+        else:
+            df["target"] = None
+            df["kind"] = "choice"
+
+            label_col = None
+            for col in ["class", "label", "target", "labels", "category"]:
+                if col in df.columns and col != text_col:
                     label_col = col
                     break
-
-        if label_col is None:
-            # Fallback: synthesize label 0
-            df["class"] = 0
-        else:
-            # Map labels to 0, 1, 2 modulo 3 if numeric, or categorical code
-            if not pd.api.types.is_numeric_dtype(df[label_col]):
-                df["class"] = pd.Categorical(df[label_col]).codes
+            if label_col is None:
+                df["class"] = 0
             else:
-                df["class"] = df[label_col].astype(int) % 3
+                if not pd.api.types.is_numeric_dtype(df[label_col]):
+                    df["class"] = pd.Categorical(df[label_col]).codes % 3
+                else:
+                    df["class"] = df[label_col].astype(int) % 3
+
+        # Micro-batch sampling
+        if micro_batch_size and len(df) > micro_batch_size:
+            df = df.sample(n=micro_batch_size, random_state=42).reset_index(drop=True)
+
 
         df["tweet"] = df[text_col].astype(str)
-        return df[["tweet", "class"]]
+        batch_ids = df["sample_id"].tolist()
+        return df[["sample_id", "tweet", "class", "target", "kind"]], batch_ids
 
     except Exception as e:
-        print(f"[dataset_loader] Failed to load '{dataset_name}': {e}. Falling back to baseline dataset.")
-        return load_baseline_dataset()
+        print(f"[dataset_loader] Failed to load '{dataset_name}' ({e}). Falling back to baseline dataset.")
+        return load_baseline_dataset(micro_batch_size=micro_batch_size, seen_ids=seen_ids)
 
 if __name__ == "__main__":
-    df_base = load_baseline_dataset()
-    print(f"Loaded baseline dataset: {len(df_base)} rows.")
-    print(df_base.head(2))
+    df_batch, ids = load_baseline_dataset(micro_batch_size=100)
+    print(f"Loaded micro-batch: {len(df_batch)} rows, {len(ids)} IDs.")
+    print(df_batch.head(2))
