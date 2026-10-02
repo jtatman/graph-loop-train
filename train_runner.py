@@ -120,14 +120,17 @@ def compute_loss(logits, labels, soft_targets=None, class_weights=None, temperat
     """
     if soft_targets is not None:
         # Soft-target KL divergence distillation loss (JEV method)
-        log_probs = F.log_softmax(logits[:, :3] / temperature, dim=-1)
-        targets = soft_targets[:, :3]
-        targets = targets / (targets.sum(dim=-1, keepdim=True) + 1e-8)
+        num_cls = min(logits.size(-1), soft_targets.size(-1))
+        logits_slice = logits[:, :num_cls]
+        targets_slice = soft_targets[:, :num_cls]
+        log_probs = F.log_softmax(logits_slice / temperature, dim=-1)
+        targets = targets_slice / (targets_slice.sum(dim=-1, keepdim=True) + 1e-8)
         loss = F.kl_div(log_probs, targets, reduction="batchmean") * (temperature ** 2)
         return loss
     else:
         # Hard label Cross-Entropy loss
         return F.cross_entropy(logits[:, :3], labels, weight=class_weights)
+
 
 @torch.no_grad()
 def validation_f1(head, items, cache, ids, pad_token_id, hidden_size, batch_size):
