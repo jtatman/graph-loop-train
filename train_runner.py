@@ -249,6 +249,14 @@ def evaluate_fixed_benchmark(agent, tuned_head) -> dict:
         "fixed_bench_f1_delta": tuned_f1 - base_f1,
     }
 
+# Module-level PyTorch CPU thread configuration (called once on import)
+_num_threads = min(4, os.cpu_count() or 2)
+torch.set_num_threads(_num_threads)
+try:
+    torch.set_num_interop_threads(1)
+except RuntimeError:
+    pass
+
 def run_training_cycle(
     cycle_id: int,
     dataset_name: str,
@@ -262,9 +270,7 @@ def run_training_cycle(
     Returns (metrics_dict, checkpoint_file_path, used_sample_ids).
     """
     seed()
-    num_threads = min(4, os.cpu_count() or 2)
-    torch.set_num_threads(num_threads)
-    torch.set_num_interop_threads(1)
+
 
 
     cycle_out = output_dir / f"cycle_{cycle_id:03d}"
