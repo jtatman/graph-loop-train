@@ -1,8 +1,8 @@
 """
 Graph-Tracked Training Loop Orchestrator for Laya Model.
-Executes iterative micro-batch training passes, maintains non-overlapping sample ledger,
-queries local LLM controller, evaluates Gold Benchmark + Fixed Prompt Suite,
-and manages checkpoint promotion and rollback.
+Supports Task-Isolated Domain Pipelines (distill, bio, sentiment, agent),
+Distillation Foundation Model Seeding, Domain Checkpoint Isolation,
+and Dynamic Adaptive Batch/Threshold Scaling.
 """
 
 import json
@@ -15,15 +15,32 @@ from hf_search import search_datasets_cli
 from llm_controller import get_next_loop_decision
 from train_runner import run_training_cycle
 
-MAX_TOTAL_CYCLES = 20
-MAX_STAGNATION_CYCLES = 5
-DEFAULT_MICRO_BATCH_SIZE = 300
+DEFAULT_TARGET_CYCLES = 25
+DEFAULT_MAX_STAGNATION = 5
+DEFAULT_MICRO_BATCH_SIZE = 1500
 
-DEFAULT_DATASETS = [
-    "tdavidson/hate_speech_offensive",
-    "dnagpt/laya-bio",
-    "SargeDev/jev-distill-corpus-v3",
-]
+DOMAIN_TAXONOMY: Dict[str, List[str]] = {
+    "distill": [
+        "SargeDev/jev-distill-corpus-v3",
+        "tasksource/tasksource-jev-typed-decisions",
+        "IFM/Code-Reasoning",
+    ],
+    "bio": [
+        "dnagpt/laya-bio",
+        "camel-ai/biology",
+        "just-dna-seq/annotators",
+    ],
+    "sentiment": [
+        "zeroshot/twitter-financial-news-sentiment",
+        "FinGPT/fingpt-sentiment-train",
+        "Jean-Baptiste/financial_news_sentiment",
+    ],
+    "agent": [
+        "MaziyarPanahi/AgentToolDecisions-180K",
+        "Team-ACE/ToolACE",
+        "withmartian/routerbench",
+    ],
+}
 
 def load_seen_ledger(ledger_path: Path) -> Set[str]:
     if ledger_path.exists():
@@ -38,26 +55,43 @@ def save_seen_ledger(ledger_path: Path, seen_ids: Set[str]):
     ledger_path.write_text(json.dumps({"seen_sample_ids": list(seen_ids), "count": len(seen_ids)}, indent=2))
 
 def run_graph_loop(
-    max_cycles: int = MAX_TOTAL_CYCLES,
-    max_stagnation: int = MAX_STAGNATION_CYCLES,
+    domain: str = "distill",
+    max_cycles: int = DEFAULT_TARGET_CYCLES,
+    max_stagnation: int = DEFAULT_MAX_STAGNATION,
     micro_batch_size: int = DEFAULT_MICRO_BATCH_SIZE,
     output_dir_path: str = "output",
 ):
-    output_dir = Path(output_dir_path)
+    domain = domain.lower()
+    if domain not in DOMAIN_TAXONOMY:
+        print(f"[loop] Warning: Unknown domain '{domain}'. Defaulting to 'distill'.")
+        domain = "distill"
+
+    output_dir = Path(output_dir_path) / domain
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoints_dir = Path("checkpoints")
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
-    ledger_path = checkpoints_dir / "seen_samples.json"
 
+    ledger_path = checkpoints_dir / f"seen_samples_{domain}.json"
     seen_ids = load_seen_ledger(ledger_path)
     cycle_history: List[Dict[str, Any]] = []
-    available_datasets = list(DEFAULT_DATASETS)
+    available_datasets = list(DOMAIN_TAXONOMY[domain])
 
     best_macro_f1 = -1.0
     best_bench_f1 = -1.0
-    best_checkpoint_path = checkpoints_dir / "best_head.safetensors"
+    best_checkpoint_path = checkpoints_dir / f"best_{domain}_head.safetensors"
+    distill_checkpoint_path = checkpoints_dir / "best_distill_head.safetensors"
+
+    # Stage 2 Domain Specialty Seeding: Load Distillation Base Model if domain checkpoint doesn't exist yet
+    if domain != "distill" and not best_checkpoint_path.exists() and distill_checkpoint_path.exists():
+        try:
+            shutil.copy2(distill_checkpoint_path, best_checkpoint_path)
+            print(f"[loop] Domain '{domain}' initial baseline seeded from promoted distillation base model: '{distill_checkpoint_path}'")
+        except Exception as e:
+            print(f"[loop] Warning: Could not seed from distillation base model: {e}")
+
     consecutive_stagnation = 0
 
+    # Restore session history for this domain if present
     summary_path = output_dir / "loop_summary.json"
     if summary_path.exists() and best_checkpoint_path.exists():
         try:
@@ -68,25 +102,32 @@ def run_graph_loop(
                     if rec.get("status") == "ACCEPTED":
                         best_macro_f1 = max(best_macro_f1, rec.get("tuned_macro_f1", -1.0))
                         best_bench_f1 = max(best_bench_f1, rec.get("fixed_bench_f1", -1.0))
-                print(f"[loop] Resuming session: loaded {len(past_history)} prior cycle records from {summary_path}.")
-                print(f"[loop] Restored all-time best thresholds: Holdout F1 = {best_macro_f1:.4f} | Fixed Bench F1 = {best_bench_f1:.4f}")
+                print(f"[loop] Resuming domain '{domain}': loaded {len(past_history)} prior cycle records.")
+                print(f"[loop] Restored best thresholds: Holdout F1 = {best_macro_f1:.4f} | Fixed Bench F1 = {best_bench_f1:.4f}")
         except Exception as e:
             print(f"[loop] Warning: Could not restore previous loop summary: {e}")
+
+    # Success streak adaptive scaling: Expand iterations & stagnation tolerance if streak is strong
+    accepted_count = sum(1 for r in cycle_history if r.get("status") == "ACCEPTED")
+    if accepted_count >= 15 and len(cycle_history) >= 20:
+        max_cycles = max(max_cycles, 35)
+        max_stagnation = max(max_stagnation, 7)
+        print(f"[loop] High Acceptance Streak Detected! Auto-scaling target cycles -> {max_cycles}, max stagnation -> {max_stagnation}")
 
     start_cycle_index = len(cycle_history) + 1
 
     print("=" * 70)
-    print("STARTING GRAPH-TRACKED TRAINING LOOP FOR LAYA")
+    print(f"STARTING GRAPH-TRACKED TRAINING LOOP | DOMAIN: '{domain.upper()}'")
     print(f"Max Cycles For This Run: {max_cycles} | Max Stagnation: {max_stagnation} | Micro-Batch Size: {micro_batch_size}")
-    print(f"Initial Candidate Datasets: {available_datasets}")
+    print(f"Candidate Datasets for {domain.upper()}: {available_datasets}")
     print(f"Sample Ledger: {len(seen_ids)} previously learned row IDs loaded from {ledger_path}")
     if best_checkpoint_path.exists():
-        print(f"Promoted Checkpoint: Found '{best_checkpoint_path}' (Loaded as initial baseline)")
+        print(f"Promoted Checkpoint: Found '{best_checkpoint_path}' (Loaded as starting baseline)")
     print("=" * 70)
 
     for cycle_offset in range(max_cycles):
         cycle = start_cycle_index + cycle_offset
-        print(f"\n>>> CYCLE #{cycle} (Run Pass {cycle_offset + 1}/{max_cycles}) | (Stagnation Count: {consecutive_stagnation}/{max_stagnation}) | Seen Ledger: {len(seen_ids)} rows")
+        print(f"\n>>> CYCLE #{cycle} (Pass {cycle_offset + 1}/{max_cycles}) | Domain: '{domain}' | Stagnation: {consecutive_stagnation}/{max_stagnation} | Ledger: {len(seen_ids)} rows")
 
         # Query Local LLM Controller for next action decision
         decision = get_next_loop_decision(
@@ -98,7 +139,6 @@ def run_graph_loop(
 
         action = decision.get("action", "train")
 
-        # Handle HF search action if requested by LLM controller
         if action == "search_hf" and decision.get("search_query"):
             query = decision["search_query"]
             print(f"[loop] LLM requested HF dataset search for query: '{query}'...")
@@ -118,7 +158,7 @@ def run_graph_loop(
             "epochs": decision.get("epochs", 6),
         }
 
-        print(f"[loop] Cycle #{cycle} Plan -> Dataset: '{dataset_name}', Micro-Batch: {micro_batch_size}, Hyperparams: {hyperparams}")
+        print(f"[loop] Cycle #{cycle} Plan -> Domain: '{domain}', Dataset: '{dataset_name}', Micro-Batch: {micro_batch_size}, Hyperparams: {hyperparams}")
 
         # Execute micro-batch training pass
         try:
@@ -129,11 +169,13 @@ def run_graph_loop(
                 output_dir=output_dir,
                 micro_batch_size=micro_batch_size,
                 seen_ids=seen_ids,
+                domain=domain,
             )
         except Exception as e:
             print(f"[loop] ERROR: Cycle #{cycle} micro-batch pass failed: {e}")
             cycle_history.append({
                 "cycle": cycle,
+                "domain": domain,
                 "dataset_name": dataset_name,
                 "hyperparams": hyperparams,
                 "status": "FAILED",
@@ -150,8 +192,7 @@ def run_graph_loop(
         delta_holdout_f1 = tuned_f1 - best_macro_f1 if best_macro_f1 > 0 else tuned_f1
         delta_bench_f1 = bench_f1 - best_bench_f1 if best_bench_f1 > 0 else bench_f1
 
-        # Checkpoint Promotion & Ledger Gate
-        # Promotes if tuned holdout F1 improves AND fixed benchmark performance does not degrade
+        # Checkpoint Promotion Gate
         is_net_positive = (
             best_macro_f1 < 0
             or (tuned_f1 > best_macro_f1 + 1e-4 and bench_f1 >= best_bench_f1 - 1e-4)
@@ -166,28 +207,32 @@ def run_graph_loop(
             best_bench_f1 = bench_f1
             consecutive_stagnation = 0
 
-            # Promote model weights
+            # Promote model weights to domain checkpoint
             shutil.copy2(cycle_ckpt_path, best_checkpoint_path)
+            # Maintain best_head.safetensors pointer
+            shutil.copy2(cycle_ckpt_path, checkpoints_dir / "best_head.safetensors")
 
-            # Record learned sample IDs into persistent ledger
+            # Record learned sample IDs into domain ledger
             seen_ids.update(used_sample_ids)
             save_seen_ledger(ledger_path, seen_ids)
 
-            print(f"✅ [NET POSITIVE] Cycle #{cycle} Accepted!")
+            print(f"✅ [NET POSITIVE] Cycle #{cycle} (Domain '{domain}') Accepted!")
             print(f"   Holdout F1: {old_best_holdout:.4f} -> {tuned_f1:.4f} ({delta_holdout_f1:+.4f})")
             print(f"   Fixed Benchmark F1: {old_best_bench:.4f} -> {bench_f1:.4f} ({delta_bench_f1:+.4f})")
             print(f"   Sample Ledger: Recorded {len(used_sample_ids)} new learned rows (Total: {len(seen_ids)})")
+            print(f"   Promoted Checkpoint: Saved to '{best_checkpoint_path}'")
         else:
             status = "REJECTED"
             consecutive_stagnation += 1
             if best_checkpoint_path.exists():
                 shutil.copy2(best_checkpoint_path, cycle_ckpt_path)
-            print(f"❌ [NET NEGATIVE/NEUTRAL] Cycle #{cycle} Rejected.")
+            print(f"❌ [NET NEGATIVE/NEUTRAL] Cycle #{cycle} (Domain '{domain}') Rejected.")
             print(f"   Holdout F1: {tuned_f1:.4f} (Best: {best_macro_f1:.4f}) | Benchmark F1: {bench_f1:.4f} (Best: {best_bench_f1:.4f})")
-            print(f"   Rolled back weights to best checkpoint. {len(used_sample_ids)} row IDs remain unlearned.")
+            print(f"   Rolled back weights to best domain checkpoint. {len(used_sample_ids)} row IDs remain unlearned.")
 
         record = {
             "cycle": cycle,
+            "domain": domain,
             "dataset_name": dataset_name,
             "hyperparams": hyperparams,
             "micro_batch_size": len(used_sample_ids),
@@ -204,22 +249,50 @@ def run_graph_loop(
         cycle_history.append(record)
         (output_dir / "loop_summary.json").write_text(json.dumps(cycle_history, indent=2))
 
-        # Check exit condition
+        # Early Stagnation Adaptive Batch Size Scaling Check
         if consecutive_stagnation >= max_stagnation:
             print(f"\n[loop] EXIT CONDITION MET: Non-improvement over {max_stagnation} consecutive cycles.")
+            if micro_batch_size < 5000:
+                new_mb = min(5000, micro_batch_size + 1000)
+                print(f"[loop] Dynamic Sizing Suggestion: Increase micro-batch size from {micro_batch_size} to {new_mb} for next session to reduce gradient noise.")
             break
 
     print("\n" + "=" * 70)
-    print("GRAPH LOOP COMPLETED")
+    print(f"GRAPH LOOP COMPLETED | DOMAIN: '{domain.upper()}'")
     print(f"Total Cycles Run: {len(cycle_history)}")
     print(f"Final Best Holdout Macro F1: {best_macro_f1:.4f}")
     print(f"Final Best Fixed Benchmark F1: {best_bench_f1:.4f}")
     print(f"Total Learned Row IDs in Ledger: {len(seen_ids)}")
-    print(f"Best Checkpoint Location: {best_checkpoint_path}")
+    print(f"Best Domain Checkpoint: {best_checkpoint_path}")
     print("=" * 70)
     return cycle_history
 
+def run_sequential_pipeline(
+    max_cycles: int = DEFAULT_TARGET_CYCLES,
+    micro_batch_size: int = DEFAULT_MICRO_BATCH_SIZE,
+):
+    """Executes full sequential pipeline: Distillation -> Bio -> Sentiment -> Agent."""
+    pipeline = ["distill", "bio", "sentiment", "agent"]
+    print("=" * 70)
+    print("LAUNCHING SEQUENTIAL TASK-ISOLATED TRAINING PIPELINE")
+    print(f"Pipeline Order: {' -> '.join(pipeline)}")
+    print("=" * 70)
+
+    for dom in pipeline:
+        print(f"\n>>> PIPELINE STAGE: Training Domain '{dom.upper()}'...")
+        run_graph_loop(domain=dom, max_cycles=max_cycles, micro_batch_size=micro_batch_size)
+
 if __name__ == "__main__":
-    max_c = int(sys.argv[1]) if len(sys.argv) > 1 else MAX_TOTAL_CYCLES
-    mb_s = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_MICRO_BATCH_SIZE
-    run_graph_loop(max_cycles=max_c, micro_batch_size=mb_s)
+    if len(sys.argv) > 1 and sys.argv[1] in DOMAIN_TAXONOMY:
+        dom = sys.argv[1]
+        max_c = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_TARGET_CYCLES
+        mb_s = int(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_MICRO_BATCH_SIZE
+        run_graph_loop(domain=dom, max_cycles=max_c, micro_batch_size=mb_s)
+    elif len(sys.argv) > 1 and sys.argv[1] in ("pipeline", "sequential", "--pipeline"):
+        max_c = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_TARGET_CYCLES
+        mb_s = int(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_MICRO_BATCH_SIZE
+        run_sequential_pipeline(max_cycles=max_c, micro_batch_size=mb_s)
+    else:
+        max_c = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else DEFAULT_TARGET_CYCLES
+        mb_s = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else DEFAULT_MICRO_BATCH_SIZE
+        run_graph_loop(domain="distill", max_cycles=max_c, micro_batch_size=mb_s)

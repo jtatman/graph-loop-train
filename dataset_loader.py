@@ -86,7 +86,7 @@ def load_hf_dataset(
 
         # Identify text column
         text_col = None
-        for col in ["state", "tweet", "text", "sequence", "sentence", "input", "content"]:
+        for col in ["state", "tweet", "text", "sequence", "sentence", "input", "content", "prompt", "instruction", "messages"]:
             if col in df.columns:
                 text_col = col
                 break
@@ -110,7 +110,7 @@ def load_hf_dataset(
             df["kind"] = "choice"
 
             label_col = None
-            for col in ["class", "label", "target", "labels", "category"]:
+            for col in ["class", "label", "target", "labels", "category", "choice", "action", "tool"]:
                 if col in df.columns and col != text_col:
                     label_col = col
                     break

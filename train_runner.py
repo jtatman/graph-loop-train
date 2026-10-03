@@ -145,11 +145,13 @@ def validation_f1(head, items, cache, ids, pad_token_id, hidden_size, batch_size
 
 def train_head_micro_batch(
     agent, items, cache, hidden_size, fit_ids, val_ids, full_train_ids,
-    lr, batch_size, max_epochs, has_soft_targets=False
+    lr, batch_size, max_epochs, has_soft_targets=False, domain: str = "distill"
 ):
     seed()
     head = Head(agent.model)
-    best_ckpt = Path("checkpoints/best_head.safetensors")
+    best_ckpt = Path(f"checkpoints/best_{domain}_head.safetensors")
+    if not best_ckpt.exists():
+        best_ckpt = Path("checkpoints/best_head.safetensors")
     if best_ckpt.exists():
         from safetensors.torch import load_file
         try:
@@ -291,14 +293,13 @@ def run_training_cycle(
     output_dir: Path,
     micro_batch_size: int = 300,
     seen_ids: Optional[Set[str]] = None,
+    domain: str = "distill",
 ) -> tuple[dict, str, List[str]]:
     """
     Run one full micro-batch training & multi-faceted evaluation cycle.
     Returns (metrics_dict, checkpoint_file_path, used_sample_ids).
     """
     seed()
-
-
 
     cycle_out = output_dir / f"cycle_{cycle_id:03d}"
     cycle_out.mkdir(parents=True, exist_ok=True)
@@ -369,9 +370,9 @@ def run_training_cycle(
             cache[idx_val] = h[j, :len(items[idx_val]["ids"])].clone()
 
     # Train head
-    print(f"[cycle {cycle_id:03d}] Fine-tuning head on CPU (epochs={epochs}, lr={lr}, soft_targets={has_soft_targets})...")
+    print(f"[cycle {cycle_id:03d}] Fine-tuning head on CPU (domain='{domain}', epochs={epochs}, lr={lr}, soft_targets={has_soft_targets})...")
     tuned_head, selected_epochs = train_head_micro_batch(
-        agent, items, cache, hidden_size, fit, val, training, lr, batch_size, epochs, has_soft_targets=has_soft_targets
+        agent, items, cache, hidden_size, fit, val, training, lr, batch_size, epochs, has_soft_targets=has_soft_targets, domain=domain
     )
     cache.clear()
 
