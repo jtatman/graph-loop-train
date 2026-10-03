@@ -252,23 +252,34 @@ def run_graph_loop(
         cycle_history.append(record)
         (output_dir / "loop_summary.json").write_text(json.dumps(cycle_history, indent=2))
 
-        # Early Stagnation Adaptive Batch Size Scaling Check
-        if consecutive_stagnation >= max_stagnation:
-            print(f"\n[loop] EXIT CONDITION MET: Non-improvement over {max_stagnation} consecutive cycles.")
-            if micro_batch_size < 5000:
-                new_mb = min(5000, micro_batch_size + 1000)
-                print(f"[loop] Dynamic Sizing Suggestion: Increase micro-batch size from {micro_batch_size} to {new_mb} for next session to reduce gradient noise.")
-            break
+    exit_reason = "TARGET_REACHED"
+    if consecutive_stagnation >= max_stagnation:
+        exit_reason = "STAGNATED_EARLY"
+
+    accepted_cycles = sum(1 for r in cycle_history if r.get("status") == "ACCEPTED")
+
+    run_summary = {
+        "domain": domain,
+        "exit_reason": exit_reason,
+        "completed_cycles": len(cycle_history),
+        "accepted_cycles": accepted_cycles,
+        "best_macro_f1": best_macro_f1,
+        "best_bench_f1": best_bench_f1,
+        "stagnation_count": consecutive_stagnation,
+        "micro_batch_size": micro_batch_size,
+        "checkpoint_path": str(best_checkpoint_path),
+        "cycle_history": cycle_history,
+    }
 
     print("\n" + "=" * 70)
-    print(f"GRAPH LOOP COMPLETED | DOMAIN: '{domain.upper()}'")
-    print(f"Total Cycles Run: {len(cycle_history)}")
+    print(f"GRAPH LOOP COMPLETED | DOMAIN: '{domain.upper()}' | EXIT REASON: '{exit_reason}'")
+    print(f"Total Cycles Run: {len(cycle_history)} | Accepted: {accepted_cycles}")
     print(f"Final Best Holdout Macro F1: {best_macro_f1:.4f}")
     print(f"Final Best Fixed Benchmark F1: {best_bench_f1:.4f}")
     print(f"Total Learned Row IDs in Ledger: {len(seen_ids)}")
     print(f"Best Domain Checkpoint: {best_checkpoint_path}")
     print("=" * 70)
-    return cycle_history
+    return run_summary
 
 def run_sequential_pipeline(
     max_cycles: int = DEFAULT_TARGET_CYCLES,
