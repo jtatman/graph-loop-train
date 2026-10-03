@@ -12,6 +12,9 @@ os.environ["USE_TF"] = "0"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 import copy
 import json
 import random
