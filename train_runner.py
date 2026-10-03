@@ -149,7 +149,17 @@ def train_head_micro_batch(
 ):
     seed()
     head = Head(agent.model)
+    best_ckpt = Path("checkpoints/best_head.safetensors")
+    if best_ckpt.exists():
+        from safetensors.torch import load_file
+        try:
+            head.load_state_dict(load_file(str(best_ckpt)))
+            print(f"[train_runner] Initialized training head from promoted checkpoint: '{best_ckpt}'")
+        except Exception as e:
+            print(f"[train_runner] Warning: Could not load '{best_ckpt}' ({e}). Using base head.")
+
     optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=0.01)
+
 
     fit_labels = [items[i]["label"] for i in fit_ids]
     counts = np.bincount(fit_labels, minlength=3).astype(float)
@@ -200,7 +210,15 @@ def train_head_micro_batch(
 
     # Refit pass on full micro-batch training set
     head_refit = Head(agent.model)
+    if best_ckpt.exists():
+        from safetensors.torch import load_file
+        try:
+            head_refit.load_state_dict(load_file(str(best_ckpt)))
+        except Exception:
+            pass
+
     optimizer_refit = torch.optim.AdamW(head_refit.parameters(), lr=lr, weight_decay=0.01)
+
     step = 0
     for epoch in range(1, best_epoch + 1):
         head_refit.train()
