@@ -13,6 +13,7 @@ from loop import run_graph_loop, DOMAIN_TAXONOMY, DEFAULT_TARGET_CYCLES, DEFAULT
 
 MAX_MICRO_BATCH_CEILING = 5000
 MAX_META_PASSES = 5
+MICRO_BATCH_INCREMENT = 300
 
 def run_meta_loop(
     domain: str = "distill",
@@ -85,8 +86,8 @@ def run_meta_loop(
 
         if exit_reason == "STAGNATED_EARLY":
             if current_micro_batch < MAX_MICRO_BATCH_CEILING:
-                next_micro_batch = min(MAX_MICRO_BATCH_CEILING, current_micro_batch + 1000)
-                print(f"[meta_governor] Early Stagnation in Meta-Pass #{meta_pass}. Auto-scaling micro-batch: {current_micro_batch} -> {next_micro_batch}")
+                next_micro_batch = min(MAX_MICRO_BATCH_CEILING, current_micro_batch + MICRO_BATCH_INCREMENT)
+                print(f"[meta_governor] Early Stagnation in Meta-Pass #{meta_pass}. Auto-scaling micro-batch (+{MICRO_BATCH_INCREMENT}): {current_micro_batch} -> {next_micro_batch}")
             else:
                 consecutive_ceiling_stagnations += 1
                 print(f"[meta_governor] Stagnated at micro-batch ceiling ({MAX_MICRO_BATCH_CEILING} samples). Ceiling Stagnation Count: {consecutive_ceiling_stagnations}/2")

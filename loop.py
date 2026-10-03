@@ -17,7 +17,7 @@ from train_runner import run_training_cycle
 
 DEFAULT_TARGET_CYCLES = 25
 DEFAULT_MAX_STAGNATION = 5
-DEFAULT_MICRO_BATCH_SIZE = 1500
+DEFAULT_MICRO_BATCH_SIZE = 1000
 
 DOMAIN_TAXONOMY: Dict[str, List[str]] = {
     "distill": [
