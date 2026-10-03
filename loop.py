@@ -58,15 +58,35 @@ def run_graph_loop(
     best_checkpoint_path = checkpoints_dir / "best_head.safetensors"
     consecutive_stagnation = 0
 
+    summary_path = output_dir / "loop_summary.json"
+    if summary_path.exists() and best_checkpoint_path.exists():
+        try:
+            past_history = json.loads(summary_path.read_text())
+            if isinstance(past_history, list) and len(past_history) > 0:
+                cycle_history = past_history
+                for rec in past_history:
+                    if rec.get("status") == "ACCEPTED":
+                        best_macro_f1 = max(best_macro_f1, rec.get("tuned_macro_f1", -1.0))
+                        best_bench_f1 = max(best_bench_f1, rec.get("fixed_bench_f1", -1.0))
+                print(f"[loop] Resuming session: loaded {len(past_history)} prior cycle records from {summary_path}.")
+                print(f"[loop] Restored all-time best thresholds: Holdout F1 = {best_macro_f1:.4f} | Fixed Bench F1 = {best_bench_f1:.4f}")
+        except Exception as e:
+            print(f"[loop] Warning: Could not restore previous loop summary: {e}")
+
+    start_cycle_index = len(cycle_history) + 1
+
     print("=" * 70)
     print("STARTING GRAPH-TRACKED TRAINING LOOP FOR LAYA")
-    print(f"Max Cycles: {max_cycles} | Max Stagnation: {max_stagnation} | Micro-Batch Size: {micro_batch_size}")
+    print(f"Max Cycles For This Run: {max_cycles} | Max Stagnation: {max_stagnation} | Micro-Batch Size: {micro_batch_size}")
     print(f"Initial Candidate Datasets: {available_datasets}")
     print(f"Sample Ledger: {len(seen_ids)} previously learned row IDs loaded from {ledger_path}")
+    if best_checkpoint_path.exists():
+        print(f"Promoted Checkpoint: Found '{best_checkpoint_path}' (Loaded as initial baseline)")
     print("=" * 70)
 
-    for cycle in range(1, max_cycles + 1):
-        print(f"\n>>> CYCLE #{cycle}/{max_cycles} (Stagnation Count: {consecutive_stagnation}/{max_stagnation}) | Seen Ledger: {len(seen_ids)} rows")
+    for cycle_offset in range(max_cycles):
+        cycle = start_cycle_index + cycle_offset
+        print(f"\n>>> CYCLE #{cycle} (Run Pass {cycle_offset + 1}/{max_cycles}) | (Stagnation Count: {consecutive_stagnation}/{max_stagnation}) | Seen Ledger: {len(seen_ids)} rows")
 
         # Query Local LLM Controller for next action decision
         decision = get_next_loop_decision(
