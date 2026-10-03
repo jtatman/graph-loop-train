@@ -38,7 +38,7 @@ DOMAIN_TAXONOMY: Dict[str, List[str]] = {
     "agent": [
         "MaziyarPanahi/AgentToolDecisions-180K",
         "Team-ACE/ToolACE",
-        "withmartian/routerbench",
+        "lockon/glaive_toolcall_en",
     ],
 }
 
