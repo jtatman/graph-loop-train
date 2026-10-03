@@ -64,76 +64,87 @@ def load_hf_dataset(
     if dataset_name.lower() in ("baseline", "default", "tdavidson/hate_speech_offensive"):
         return load_baseline_dataset(micro_batch_size=micro_batch_size, seen_ids=seen_ids)
 
+    from datasets import load_dataset, get_dataset_config_names
+    print(f"[dataset_loader] Loading HF dataset: '{dataset_name}'...")
+
+    # Auto-resolve dataset config if missing
+    config_name = None
     try:
-        from datasets import load_dataset
-        print(f"[dataset_loader] Loading HF dataset: '{dataset_name}'...")
-        ds = load_dataset(dataset_name, split="train")
-        df = ds.to_pandas()
+        cfgs = get_dataset_config_names(dataset_name)
+        if cfgs and len(cfgs) > 0:
+            config_name = cfgs[0]
+            print(f"[dataset_loader] Auto-selected dataset config '{config_name}' for '{dataset_name}'.")
+    except Exception:
+        pass
 
-        # Generate or extract persistent sample_ids
-        if "id" in df.columns:
-            df["sample_id"] = df["id"].astype(str)
+    try:
+        if config_name:
+            ds = load_dataset(dataset_name, config_name, split="train")
         else:
-            df["sample_id"] = [f"{dataset_name.replace('/', '_')}_{i}" for i in range(len(df))]
+            ds = load_dataset(dataset_name, split="train")
+        df = ds.to_pandas()
+    except Exception as e:
+        print(f"[dataset_loader] ERROR: Failed to load HF dataset '{dataset_name}' ({e}).")
+        raise RuntimeError(f"Dataset '{dataset_name}' failed to load: {e}")
 
-        if seen_ids:
-            unseen_mask = ~df["sample_id"].isin(seen_ids)
-            df = df[unseen_mask].reset_index(drop=True)
+    # Generate or extract persistent sample_ids
+    if "id" in df.columns:
+        df["sample_id"] = df["id"].astype(str)
+    else:
+        df["sample_id"] = [f"{dataset_name.replace('/', '_')}_{i}" for i in range(len(df))]
 
-        if len(df) == 0:
-            print(f"[dataset_loader] All samples in '{dataset_name}' already processed! Loading fallback baseline micro-batch.")
-            return load_baseline_dataset(micro_batch_size=micro_batch_size, seen_ids=seen_ids)
+    if seen_ids:
+        unseen_mask = ~df["sample_id"].isin(seen_ids)
+        df = df[unseen_mask].reset_index(drop=True)
 
-        # Identify text column
-        text_col = None
-        for col in ["state", "tweet", "text", "sequence", "sentence", "input", "content", "prompt", "instruction", "messages"]:
-            if col in df.columns:
+    if len(df) == 0:
+        raise RuntimeError(f"All samples in '{dataset_name}' have already been processed in the sample ledger.")
+
+    # Identify text column
+    text_col = None
+    for col in ["state", "tweet", "text", "sequence", "sentence", "input", "content", "prompt", "instruction", "messages"]:
+        if col in df.columns:
+            text_col = col
+            break
+    if text_col is None:
+        for col in df.columns:
+            if df[col].dtype == object or isinstance(df[col].iloc[0], str):
                 text_col = col
                 break
-        if text_col is None:
-            for col in df.columns:
-                if df[col].dtype == object or isinstance(df[col].iloc[0], str):
-                    text_col = col
-                    break
-        if text_col is None:
-            raise ValueError(f"No suitable text column in '{dataset_name}' with columns {df.columns.tolist()}")
+    if text_col is None:
+        raise ValueError(f"No suitable text column in '{dataset_name}' with columns {df.columns.tolist()}")
 
-        # Check for JEV soft target probability distribution ('target' column with floats/lists)
-        has_soft_target = False
-        if "target" in df.columns and isinstance(df["target"].iloc[0], (list, np.ndarray)):
-            has_soft_target = True
-            df["kind"] = df.get("kind", "score")
-            # Create hard class argmax as backup label
-            df["class"] = [int(np.argmax(t)) % 3 for t in df["target"]]
+    # Check for JEV soft target probability distribution ('target' column with floats/lists)
+    has_soft_target = False
+    if "target" in df.columns and isinstance(df["target"].iloc[0], (list, np.ndarray)):
+        has_soft_target = True
+        df["kind"] = df.get("kind", "score")
+        # Create hard class argmax as backup label
+        df["class"] = [int(np.argmax(t)) % 3 for t in df["target"]]
+    else:
+        df["target"] = None
+        df["kind"] = "choice"
+
+        label_col = None
+        for col in ["class", "label", "target", "labels", "category", "choice", "action", "tool"]:
+            if col in df.columns and col != text_col:
+                label_col = col
+                break
+        if label_col is None:
+            df["class"] = 0
         else:
-            df["target"] = None
-            df["kind"] = "choice"
-
-            label_col = None
-            for col in ["class", "label", "target", "labels", "category", "choice", "action", "tool"]:
-                if col in df.columns and col != text_col:
-                    label_col = col
-                    break
-            if label_col is None:
-                df["class"] = 0
+            if not pd.api.types.is_numeric_dtype(df[label_col]):
+                df["class"] = pd.Categorical(df[label_col]).codes % 3
             else:
-                if not pd.api.types.is_numeric_dtype(df[label_col]):
-                    df["class"] = pd.Categorical(df[label_col]).codes % 3
-                else:
-                    df["class"] = df[label_col].astype(int) % 3
+                df["class"] = df[label_col].astype(int) % 3
 
-        # Micro-batch sampling
-        if micro_batch_size and len(df) > micro_batch_size:
-            df = df.sample(n=micro_batch_size, random_state=42).reset_index(drop=True)
+    # Micro-batch sampling
+    if micro_batch_size and len(df) > micro_batch_size:
+        df = df.sample(n=micro_batch_size, random_state=42).reset_index(drop=True)
 
-
-        df["tweet"] = df[text_col].astype(str)
-        batch_ids = df["sample_id"].tolist()
-        return df[["sample_id", "tweet", "class", "target", "kind"]], batch_ids
-
-    except Exception as e:
-        print(f"[dataset_loader] Failed to load '{dataset_name}' ({e}). Falling back to baseline dataset.")
-        return load_baseline_dataset(micro_batch_size=micro_batch_size, seen_ids=seen_ids)
+    df["tweet"] = df[text_col].astype(str)
+    batch_ids = df["sample_id"].tolist()
+    return df[["sample_id", "tweet", "class", "target", "kind"]], batch_ids
 
 if __name__ == "__main__":
     df_batch, ids = load_baseline_dataset(micro_batch_size=100)

@@ -23,7 +23,7 @@ DOMAIN_TAXONOMY: Dict[str, List[str]] = {
     "distill": [
         "SargeDev/jev-distill-corpus-v3",
         "tasksource/tasksource-jev-typed-decisions",
-        "IFM/Code-Reasoning",
+        "ZefanCai/Open-Jev",
     ],
     "bio": [
         "dnagpt/laya-bio",
