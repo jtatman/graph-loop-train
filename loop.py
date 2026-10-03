@@ -135,6 +135,7 @@ def run_graph_loop(
             history=cycle_history,
             best_macro_f1=max(0.0, best_macro_f1),
             available_datasets=available_datasets,
+            domain=domain,
         )
 
         action = decision.get("action", "train")
@@ -150,7 +151,9 @@ def run_graph_loop(
                     available_datasets.append(nid)
             dataset_name = decision.get("dataset_name") or (new_ids[0] if new_ids else available_datasets[0])
         else:
-            dataset_name = decision.get("dataset_name", available_datasets[(cycle - 1) % len(available_datasets)])
+            dataset_name = decision.get("dataset_name")
+            if not dataset_name or dataset_name not in available_datasets:
+                dataset_name = available_datasets[(cycle - 1) % len(available_datasets)]
 
         hyperparams = {
             "lr": decision.get("lr", 3e-5),

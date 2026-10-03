@@ -39,6 +39,7 @@ def get_next_loop_decision(
     history: List[Dict[str, Any]],
     best_macro_f1: float,
     available_datasets: List[str],
+    domain: str = "distill",
     endpoint_url: str = DEFAULT_LLM_ENDPOINT,
     timeout: int = 120,
 ) -> Dict[str, Any]:
@@ -46,9 +47,31 @@ def get_next_loop_decision(
     Query local LLM endpoint for next loop action decision.
     Falls back to deterministic cycle strategy if endpoint fails.
     """
+    system_prompt = f"""You are the AI Orchestrator for a Graph-Tracked Fine-Tuning Loop optimizing the 'convaiinnovations/laya' decision model.
+
+Your goal: Maximize the model's performance for task domain '{domain.upper()}'.
+
+Loop Constraints:
+1. Active Domain: '{domain}'
+2. Target candidate datasets allowed for domain '{domain}': {json.dumps(available_datasets)}
+3. You can vary dataset choice (MUST be one of the allowed target candidate datasets for '{domain}'), learning rate (1e-5 to 1e-4), epochs (3 to 10), or search HuggingFace for new datasets.
+
+You must respond ONLY with a valid JSON object matching this schema:
+{{
+  "action": "train" | "search_hf",
+  "dataset_name": "<must be one of {json.dumps(available_datasets)}>",
+  "search_query": "<search query string if action is search_hf>",
+  "lr": 3e-5,
+  "epochs": 6,
+  "batch_size": 16,
+  "reasoning": "<short explanation of your decision>"
+}}
+"""
+
     user_prompt = f"""Cycle #: {cycle}
+Active Domain: {domain}
 Current Best Gold Macro F1: {best_macro_f1:.4f}
-Known Available Datasets: {json.dumps(available_datasets)}
+Known Available Datasets for '{domain}': {json.dumps(available_datasets)}
 
 Recent Cycle History (last 5 passes):
 {json.dumps(history[-5:], indent=2)}
@@ -58,7 +81,7 @@ Decide the next action for Cycle #{cycle}."""
     payload = {
         "model": "local-model",
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.3,
@@ -84,10 +107,10 @@ Decide the next action for Cycle #{cycle}."""
         print(f"[llm_controller] Local LLM endpoint unreachable ({e}). Using heuristic fallback.")
 
     # Heuristic fallback strategy if local LLM server is offline/unresponsive
-    candidate_datasets = ["tdavidson/hate_speech_offensive", "dnagpt/laya-bio", "SargeDev/jev-distill-corpus-v3"]
-    dataset = candidate_datasets[cycle % len(candidate_datasets)]
+    candidate_datasets = available_datasets if available_datasets else ["SargeDev/jev-distill-corpus-v3"]
+    dataset = candidate_datasets[(cycle - 1) % len(candidate_datasets)]
     lrs = [3e-5, 5e-5, 2e-5]
-    lr = lrs[cycle % len(lrs)]
+    lr = lrs[(cycle - 1) % len(lrs)]
     epochs = 5 + (cycle % 3)
 
     return {
@@ -97,7 +120,7 @@ Decide the next action for Cycle #{cycle}."""
         "lr": lr,
         "epochs": epochs,
         "batch_size": 16,
-        "reasoning": f"Heuristic fallback: cycle {cycle} targeting dataset '{dataset}' with lr={lr}, epochs={epochs}.",
+        "reasoning": f"Heuristic fallback for domain '{domain}': cycle {cycle} targeting dataset '{dataset}' with lr={lr}, epochs={epochs}.",
     }
 
 if __name__ == "__main__":
