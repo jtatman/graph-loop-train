@@ -1,6 +1,6 @@
 """
 Local LLM Controller for Graph Loop Training.
-Communicates with local OpenAI-compatible endpoint (http://10.209.1.159:8080/v1)
+Communicates with local OpenAI-compatible endpoint (http://10.209.1.214:8080/v1)
 to decide next training hyperparameters, dataset choices, or dataset search queries.
 """
 
@@ -8,7 +8,7 @@ import json
 import requests
 from typing import Dict, Any, List
 
-DEFAULT_LLM_ENDPOINT = "http://10.209.1.159:8080/v1/chat/completions"
+DEFAULT_LLM_ENDPOINT = "http://10.209.1.214:8080/v1/chat/completions"
 
 SYSTEM_PROMPT = """You are the AI Orchestrator for a Graph-Tracked Fine-Tuning Loop optimizing the 'convaiinnovations/laya' decision model.
 

@@ -32,7 +32,7 @@ This project implements an agentic, graph-tracked training loop for fine-tuning 
 ### Loop Operating Rules
 1. **Static Foundation**: The model architecture, training infrastructure (`train_runner.py`), and evaluation benchmark dataset splits are kept static.
 2. **Dynamic Variables**: The loop dynamically varies dataset choices, training sequence/mix, learning rates, epochs, and search queries for HuggingFace datasets.
-3. **Local LLM Integration**: The loop controller queries a local OpenAI-compatible endpoint at `http://10.209.1.159:8080/v1` for strategy decisions.
+3. **Local LLM Integration**: The loop controller queries a local OpenAI-compatible endpoint at `http://10.209.1.214:8080/v1` for strategy decisions.
 4. **Evaluation & Rollback**:
    - Evaluation phase executes at the end of each pass.
    - **Net Positive**: Macro F1 improvement promotes the new checkpoint to `checkpoints/best_head.safetensors` and resets stagnation.

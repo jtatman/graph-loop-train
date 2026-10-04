@@ -11,7 +11,7 @@ The loop dynamically explores datasets, hyperparameters, and HuggingFace search 
 ```
                   +-----------------------------------+
                   |         Loop Controller           |
-                  |  (Local LLM: 10.209.1.159:8080)   |
+                  |  (Local LLM: 10.209.1.214:8080)   |
                   +-----------------+-----------------+
                                     |
           +-------------------------+-------------------------+
@@ -105,7 +105,7 @@ uv run python main.py 10
 
 - `main.py` - Single-launch CLI entry point.
 - `loop.py` - Graph loop orchestrator, state manager, evaluation & rollback gate.
-- `llm_controller.py` - Local LLM client (`http://10.209.1.159:8080/v1`) for strategy decisions.
+- `llm_controller.py` - Local LLM client (`http://10.209.1.214:8080/v1`) for strategy decisions.
 - `hf_search.py` - HuggingFace dataset search helper using `/usr/bin/hf` CLI and python API.
 - `dataset_loader.py` - Dataset ingestion & column schema normalizer.
 - `train_runner.py` - Parameterized Laya head training pass and gold benchmark evaluation.
