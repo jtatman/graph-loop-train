@@ -29,7 +29,7 @@ You must respond ONLY with a valid JSON object matching this schema:
   "search_query": "<search query string if action is search_hf>",
   "lr": 3e-5,
   "epochs": 6,
-  "batch_size": 16,
+  "batch_size": 64,
   "reasoning": "<short explanation of your decision>"
 }
 """
@@ -63,7 +63,7 @@ You must respond ONLY with a valid JSON object matching this schema:
   "search_query": "<search query string if action is search_hf>",
   "lr": 3e-5,
   "epochs": 6,
-  "batch_size": 16,
+  "batch_size": 64,
   "reasoning": "<short explanation of your decision>"
 }}
 """
@@ -119,7 +119,7 @@ Decide the next action for Cycle #{cycle}."""
         "search_query": "",
         "lr": lr,
         "epochs": epochs,
-        "batch_size": 16,
+        "batch_size": 64,
         "reasoning": f"Heuristic fallback for domain '{domain}': cycle {cycle} targeting dataset '{dataset}' with lr={lr}, epochs={epochs}.",
     }
 

@@ -163,7 +163,7 @@ def run_graph_loop(
 
         hyperparams = {
             "lr": decision.get("lr", 3e-5),
-            "batch_size": decision.get("batch_size", 16),
+            "batch_size": decision.get("batch_size", 64),
             "epochs": decision.get("epochs", 6),
             "grad_accum_steps": decision.get("grad_accum_steps", DEFAULT_GRAD_ACCUM_STEPS),
         }

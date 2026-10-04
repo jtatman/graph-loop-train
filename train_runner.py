@@ -317,7 +317,7 @@ def run_training_cycle(
     cycle_out.mkdir(parents=True, exist_ok=True)
 
     lr = hyperparams.get("lr", 3e-5)
-    batch_size = hyperparams.get("batch_size", 16)
+    batch_size = hyperparams.get("batch_size", 64)
     epochs = hyperparams.get("epochs", 6)
     grad_accum_steps = hyperparams.get("grad_accum_steps", 4)
 
