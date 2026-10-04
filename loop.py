@@ -252,6 +252,11 @@ def run_graph_loop(
         cycle_history.append(record)
         (output_dir / "loop_summary.json").write_text(json.dumps(cycle_history, indent=2))
 
+        # Check early exit condition inside the loop
+        if consecutive_stagnation >= max_stagnation:
+            print(f"\n[loop] EXIT CONDITION MET: Stagnated over {consecutive_stagnation}/{max_stagnation} consecutive cycles.")
+            break
+
     exit_reason = "TARGET_REACHED"
     if consecutive_stagnation >= max_stagnation:
         exit_reason = "STAGNATED_EARLY"
