@@ -148,7 +148,8 @@ def validation_f1(head, items, cache, ids, pad_token_id, hidden_size, batch_size
 
 def train_head_micro_batch(
     agent, items, cache, hidden_size, fit_ids, val_ids, full_train_ids,
-    lr, batch_size, max_epochs, has_soft_targets=False, domain: str = "distill"
+    lr, batch_size, max_epochs, has_soft_targets=False, domain: str = "distill",
+    grad_accum_steps: int = 4,
 ):
     seed()
     head = Head(agent.model)
@@ -165,7 +166,6 @@ def train_head_micro_batch(
 
     optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=0.01)
 
-
     fit_labels = [items[i]["label"] for i in fit_ids]
     counts = np.bincount(fit_labels, minlength=3).astype(float)
     counts[counts == 0] = 1.0
@@ -179,7 +179,9 @@ def train_head_micro_batch(
     for epoch in pbar_epoch:
         head.train()
         chunks = make_batches(items, fit_ids, batch_size, epoch)
-        for chunk in chunks:
+        total_chunks = len(chunks)
+        optimizer.zero_grad(set_to_none=True)
+        for chunk_idx, chunk in enumerate(chunks):
             step += 1
             for group in optimizer.param_groups:
                 group["lr"] = lr * min(1.0, step / 10)
@@ -194,12 +196,14 @@ def train_head_micro_batch(
                     padded_soft = [list(st) + [0.0] * (max_len - len(st)) for st in soft_list]
                     soft_batch = torch.tensor(padded_soft, dtype=torch.float32)
 
-
-            optimizer.zero_grad(set_to_none=True)
             loss = compute_loss(head(h, b), b["label"], soft_targets=soft_batch, class_weights=weights)
+            loss = loss / grad_accum_steps
             loss.backward()
-            nn.utils.clip_grad_norm_(head.parameters(), 1.0)
-            optimizer.step()
+
+            if (chunk_idx + 1) % grad_accum_steps == 0 or (chunk_idx + 1) == total_chunks:
+                nn.utils.clip_grad_norm_(head.parameters(), 1.0)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
 
         if val_ids is not None and len(val_ids) > 0:
             score = validation_f1(head, items, cache, val_ids, agent.tok.pad_token_id, hidden_size, batch_size)
@@ -227,7 +231,10 @@ def train_head_micro_batch(
     step = 0
     for epoch in range(1, best_epoch + 1):
         head_refit.train()
-        for chunk in make_batches(items, full_train_ids, batch_size, epoch):
+        refit_chunks = make_batches(items, full_train_ids, batch_size, epoch)
+        total_refit_chunks = len(refit_chunks)
+        optimizer_refit.zero_grad(set_to_none=True)
+        for chunk_idx, chunk in enumerate(refit_chunks):
             step += 1
             for group in optimizer_refit.param_groups:
                 group["lr"] = lr * min(1.0, step / 10)
@@ -241,12 +248,14 @@ def train_head_micro_batch(
                     padded_soft = [list(st) + [0.0] * (max_len - len(st)) for st in soft_list]
                     soft_batch = torch.tensor(padded_soft, dtype=torch.float32)
 
-
-            optimizer_refit.zero_grad(set_to_none=True)
             loss = compute_loss(head_refit(h, b), b["label"], soft_targets=soft_batch, class_weights=weights)
+            loss = loss / grad_accum_steps
             loss.backward()
-            nn.utils.clip_grad_norm_(head_refit.parameters(), 1.0)
-            optimizer_refit.step()
+
+            if (chunk_idx + 1) % grad_accum_steps == 0 or (chunk_idx + 1) == total_refit_chunks:
+                nn.utils.clip_grad_norm_(head_refit.parameters(), 1.0)
+                optimizer_refit.step()
+                optimizer_refit.zero_grad(set_to_none=True)
 
     return head_refit.eval(), best_epoch
 
@@ -310,11 +319,12 @@ def run_training_cycle(
     lr = hyperparams.get("lr", 3e-5)
     batch_size = hyperparams.get("batch_size", 16)
     epochs = hyperparams.get("epochs", 6)
+    grad_accum_steps = hyperparams.get("grad_accum_steps", 4)
 
     # Load micro-batch dataset
     print(f"\n[cycle {cycle_id:03d}] Loading micro-batch (max {micro_batch_size} samples) from dataset '{dataset_name}'...")
     df, used_sample_ids = load_hf_dataset(dataset_name, micro_batch_size=micro_batch_size, seen_ids=seen_ids)
-    print(f"[cycle {cycle_id:03d}] Loaded {len(df)} unseen rows. First sample ID: {used_sample_ids[0] if used_sample_ids else 'None'}")
+    print(f"[cycle {cycle_id:03d}] Loaded {len(df)} total rows ({len(used_sample_ids)} new unseen). First new sample ID: {used_sample_ids[0] if used_sample_ids else 'None'}")
 
     y = df["class"].to_numpy()
     groups = df["tweet"].map(normalize_text).to_numpy()
@@ -373,9 +383,9 @@ def run_training_cycle(
             cache[idx_val] = h[j, :len(items[idx_val]["ids"])].clone()
 
     # Train head
-    print(f"[cycle {cycle_id:03d}] Fine-tuning head on CPU (domain='{domain}', epochs={epochs}, lr={lr}, soft_targets={has_soft_targets})...")
+    print(f"[cycle {cycle_id:03d}] Fine-tuning head on CPU (domain='{domain}', epochs={epochs}, lr={lr}, batch_size={batch_size}, grad_accum={grad_accum_steps} [eff_batch={batch_size * grad_accum_steps}], soft_targets={has_soft_targets})...")
     tuned_head, selected_epochs = train_head_micro_batch(
-        agent, items, cache, hidden_size, fit, val, training, lr, batch_size, epochs, has_soft_targets=has_soft_targets, domain=domain
+        agent, items, cache, hidden_size, fit, val, training, lr, batch_size, epochs, has_soft_targets=has_soft_targets, domain=domain, grad_accum_steps=grad_accum_steps
     )
     cache.clear()
 

@@ -1,6 +1,6 @@
 """
 Meta-Loop Governor & Outer Auto-Restarter for Graph-Tracked Training Loop.
-Manages outer loop passes, dynamic micro-batch scaling (1,500 -> 5,000 ceiling),
+Manages outer loop passes, dynamic micro-batch scaling (2,500 -> 10,000 ceiling),
 cardinal exit limits, and sequential domain pipelines.
 """
 
@@ -11,9 +11,9 @@ from typing import List, Dict, Any
 
 from loop import run_graph_loop, DOMAIN_TAXONOMY, DEFAULT_TARGET_CYCLES, DEFAULT_MAX_STAGNATION, DEFAULT_MICRO_BATCH_SIZE
 
-MAX_MICRO_BATCH_CEILING = 5000
+MAX_MICRO_BATCH_CEILING = 10000
 MAX_META_PASSES = 5
-MICRO_BATCH_INCREMENT = 300
+MICRO_BATCH_INCREMENT = 1000
 
 def run_meta_loop(
     domain: str = "distill",
