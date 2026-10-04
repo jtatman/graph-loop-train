@@ -75,6 +75,8 @@ def run_meta_loop(
         exit_reason = run_summary.get("exit_reason", "UNKNOWN")
         best_holdout_f1 = run_summary.get("best_macro_f1", 0.0)
         best_bench_f1 = run_summary.get("best_bench_f1", 0.0)
+        initial_base_holdout_f1 = run_summary.get("initial_base_holdout_f1", 0.0)
+        initial_base_bench_f1 = run_summary.get("initial_base_bench_f1", 0.0)
         completed_cycles = run_summary.get("completed_cycles", 0)
         accepted_cycles = run_summary.get("accepted_cycles", 0)
 
@@ -114,8 +116,12 @@ def run_meta_loop(
             "max_stagnation": current_max_stagnation,
             "completed_cycles": completed_cycles,
             "accepted_cycles": accepted_cycles,
+            "initial_base_holdout_f1": initial_base_holdout_f1,
+            "initial_base_bench_f1": initial_base_bench_f1,
             "best_macro_f1": best_holdout_f1,
             "best_bench_f1": best_bench_f1,
+            "holdout_f1_delta": best_holdout_f1 - initial_base_holdout_f1 if initial_base_holdout_f1 > 0 else 0.0,
+            "bench_f1_delta": best_bench_f1 - initial_base_bench_f1 if initial_base_bench_f1 > 0 else 0.0,
             "exit_reason": exit_reason,
             "pass_action": pass_action,
             "next_micro_batch": next_micro_batch,
@@ -132,10 +138,15 @@ def run_meta_loop(
         current_max_cycles = next_max_cycles
         current_max_stagnation = next_max_stagnation
 
+    init_holdout = meta_history[0].get("initial_base_holdout_f1", 0.0) if meta_history else 0.0
+    init_bench = meta_history[0].get("initial_base_bench_f1", 0.0) if meta_history else 0.0
+
     print("\n" + "=" * 80)
     print(f"META-LOOP GOVERNOR FINALIZED | DOMAIN: '{domain.upper()}'")
     print(f"Total Meta-Passes Executed: {len(meta_history)}")
-    print(f"Final Best Holdout F1: {best_holdout_f1:.4f} | Best Bench F1: {best_bench_f1:.4f}")
+    print(f"Initial Base Model  -> Holdout F1: {init_holdout:.4f} | Fixed Bench F1: {init_bench:.4f}")
+    print(f"Final Promoted Head -> Holdout F1: {best_holdout_f1:.4f} | Fixed Bench F1: {best_bench_f1:.4f}")
+    print(f"Net Gain Over Base  -> Holdout Δ: {best_holdout_f1 - init_holdout:+.4f} | Fixed Bench Δ: {best_bench_f1 - init_bench:+.4f}")
     print("=" * 80)
     return {"meta_history": meta_history, "final_micro_batch": current_micro_batch}
 

@@ -91,6 +91,9 @@ def run_graph_loop(
 
     consecutive_stagnation = 0
 
+    initial_base_holdout_f1 = 0.0
+    initial_base_bench_f1 = 0.0
+
     # Restore session history for this domain if present
     summary_path = output_dir / "loop_summary.json"
     if summary_path.exists() and best_checkpoint_path.exists():
@@ -98,6 +101,8 @@ def run_graph_loop(
             past_history = json.loads(summary_path.read_text())
             if isinstance(past_history, list) and len(past_history) > 0:
                 cycle_history = past_history
+                initial_base_holdout_f1 = past_history[0].get("base_macro_f1", 0.0)
+                initial_base_bench_f1 = past_history[0].get("base_bench_f1", 0.0)
                 for rec in past_history:
                     if rec.get("status") == "ACCEPTED":
                         best_macro_f1 = max(best_macro_f1, rec.get("tuned_macro_f1", -1.0))
@@ -190,6 +195,10 @@ def run_graph_loop(
                 break
             continue
 
+        if initial_base_holdout_f1 == 0.0:
+            initial_base_holdout_f1 = metrics.get("base_macro_f1", 0.0)
+            initial_base_bench_f1 = metrics.get("fixed_benchmark", {}).get("fixed_bench_base_f1", 0.0)
+
         tuned_f1 = metrics["tuned_macro_f1"]
         bench_f1 = metrics["fixed_benchmark"]["fixed_bench_tuned_f1"]
         delta_holdout_f1 = tuned_f1 - best_macro_f1 if best_macro_f1 > 0 else tuned_f1
@@ -239,6 +248,8 @@ def run_graph_loop(
             "dataset_name": dataset_name,
             "hyperparams": hyperparams,
             "micro_batch_size": len(used_sample_ids),
+            "base_macro_f1": metrics.get("base_macro_f1", 0.0),
+            "base_bench_f1": metrics.get("fixed_benchmark", {}).get("fixed_bench_base_f1", 0.0),
             "tuned_macro_f1": tuned_f1,
             "tuned_accuracy": metrics["tuned_accuracy"],
             "fixed_bench_f1": bench_f1,
@@ -268,8 +279,12 @@ def run_graph_loop(
         "exit_reason": exit_reason,
         "completed_cycles": len(cycle_history),
         "accepted_cycles": accepted_cycles,
+        "initial_base_holdout_f1": initial_base_holdout_f1,
+        "initial_base_bench_f1": initial_base_bench_f1,
         "best_macro_f1": best_macro_f1,
         "best_bench_f1": best_bench_f1,
+        "holdout_f1_delta": best_macro_f1 - initial_base_holdout_f1 if initial_base_holdout_f1 > 0 else 0.0,
+        "bench_f1_delta": best_bench_f1 - initial_base_bench_f1 if initial_base_bench_f1 > 0 else 0.0,
         "stagnation_count": consecutive_stagnation,
         "micro_batch_size": micro_batch_size,
         "checkpoint_path": str(best_checkpoint_path),
@@ -279,11 +294,13 @@ def run_graph_loop(
     print("\n" + "=" * 70)
     print(f"GRAPH LOOP COMPLETED | DOMAIN: '{domain.upper()}' | EXIT REASON: '{exit_reason}'")
     print(f"Total Cycles Run: {len(cycle_history)} | Accepted: {accepted_cycles}")
-    print(f"Final Best Holdout Macro F1: {best_macro_f1:.4f}")
-    print(f"Final Best Fixed Benchmark F1: {best_bench_f1:.4f}")
+    print(f"Initial Base Model Metrics  -> Holdout F1: {initial_base_holdout_f1:.4f} | Fixed Bench F1: {initial_base_bench_f1:.4f}")
+    print(f"Final Best Promoted Metrics -> Holdout F1: {best_macro_f1:.4f} | Fixed Bench F1: {best_bench_f1:.4f}")
+    print(f"Net Gain Over Base Model    -> Holdout Δ: {best_macro_f1 - initial_base_holdout_f1:+.4f} | Fixed Bench Δ: {best_bench_f1 - initial_base_bench_f1:+.4f}")
     print(f"Total Learned Row IDs in Ledger: {len(seen_ids)}")
     print(f"Best Domain Checkpoint: {best_checkpoint_path}")
     print("=" * 70)
+    return run_summary
     return run_summary
 
 def run_sequential_pipeline(
