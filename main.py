@@ -20,9 +20,20 @@ def main():
     parser.add_argument("--max-cycles", type=int, default=DEFAULT_TARGET_CYCLES, help="Target max cycles per inner pass.")
     parser.add_argument("--micro-batch", type=int, default=DEFAULT_MICRO_BATCH_SIZE, help="Initial micro-batch size in samples per cycle.")
     parser.add_argument("--max-meta-passes", type=int, default=MAX_META_PASSES, help="Max meta-governor restarts per domain.")
+    parser.add_argument("--llm-endpoint", type=str, default=None, help="Custom local LLM OpenAI-compatible endpoint URL (e.g. http://10.209.1.218:8080/v1/chat/completions).")
+    parser.add_argument("--llm-timeout", type=int, default=300, help="Read timeout in seconds for local LLM requests (default: 300s).")
+    parser.add_argument("--llm-model", type=str, default=None, help="Custom model name for local LLM payload.")
     parser.add_argument("positional_args", nargs="*", help="Optional positional args [domain/cycles] [micro_batch].")
 
     args = parser.parse_args()
+
+    import os
+    if args.llm_endpoint:
+        os.environ["LLM_ENDPOINT"] = args.llm_endpoint
+    if args.llm_timeout:
+        os.environ["LLM_TIMEOUT"] = str(args.llm_timeout)
+    if args.llm_model:
+        os.environ["LLM_MODEL"] = args.llm_model
 
     domain = args.domain
     max_cycles = args.max_cycles

@@ -5,10 +5,13 @@ to decide next training hyperparameters, dataset choices, or dataset search quer
 """
 
 import json
+import os
 import requests
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
-DEFAULT_LLM_ENDPOINT = "http://10.209.1.214:8080/v1/chat/completions"
+DEFAULT_LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://10.209.1.214:8080/v1/chat/completions")
+DEFAULT_LLM_MODEL = os.getenv("LLM_MODEL", "local-model")
+DEFAULT_LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "300"))
 
 SYSTEM_PROMPT = """You are the AI Orchestrator for a Graph-Tracked Fine-Tuning Loop optimizing the 'convaiinnovations/laya' decision model.
 
@@ -40,13 +43,17 @@ def get_next_loop_decision(
     best_macro_f1: float,
     available_datasets: List[str],
     domain: str = "distill",
-    endpoint_url: str = DEFAULT_LLM_ENDPOINT,
-    timeout: int = 120,
+    endpoint_url: Optional[str] = None,
+    timeout: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Query local LLM endpoint for next loop action decision.
     Falls back to deterministic cycle strategy if endpoint fails.
     """
+    url = endpoint_url or DEFAULT_LLM_ENDPOINT
+    req_timeout = timeout if timeout is not None else DEFAULT_LLM_TIMEOUT
+    model_name = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
+
     system_prompt = f"""You are the AI Orchestrator for a Graph-Tracked Fine-Tuning Loop optimizing the 'convaiinnovations/laya' decision model.
 
 Your goal: Maximize the model's performance for task domain '{domain.upper()}'.
@@ -79,17 +86,17 @@ Recent Cycle History (last 5 passes):
 Decide the next action for Cycle #{cycle}."""
 
     payload = {
-        "model": "local-model",
+        "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.3,
-        "max_tokens": 300,
+        "max_tokens": 200,
     }
 
     try:
-        response = requests.post(endpoint_url, json=payload, timeout=timeout)
+        response = requests.post(url, json=payload, timeout=req_timeout)
         if response.status_code == 200:
             data = response.json()
             content = data["choices"][0]["message"]["content"].strip()
@@ -99,12 +106,12 @@ Decide the next action for Cycle #{cycle}."""
                 if content.startswith("json"):
                     content = content[4:].strip()
             decision = json.loads(content)
-            print(f"[llm_controller] LLM Decision: {decision.get('reasoning')}")
+            print(f"[llm_controller] LLM Decision ({url}): {decision.get('reasoning')}")
             return decision
         else:
-            print(f"[llm_controller] LLM API status {response.status_code}: {response.text[:100]}")
+            print(f"[llm_controller] LLM API status {response.status_code} ({url}): {response.text[:100]}")
     except Exception as e:
-        print(f"[llm_controller] Local LLM endpoint unreachable ({e}). Using heuristic fallback.")
+        print(f"[llm_controller] Local LLM endpoint '{url}' unreachable ({e}). Using heuristic fallback.")
 
     # Heuristic fallback strategy if local LLM server is offline/unresponsive
     candidate_datasets = available_datasets if available_datasets else ["SargeDev/jev-distill-corpus-v3"]
