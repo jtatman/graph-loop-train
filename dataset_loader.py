@@ -23,6 +23,25 @@ def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", html.unescape(text))
     return re.sub(r"\s+", " ", text).strip().casefold()
 
+EXCLUDED_PATTERNS = [
+    re.compile(r"snake-v\d*", re.IGNORECASE),
+    re.compile(r"grid_world", re.IGNORECASE),
+    re.compile(r"game_action", re.IGNORECASE),
+    re.compile(r"action:\s*(move|turn|step|up|down|left|right|forward|backward)", re.IGNORECASE),
+    re.compile(r"x_y_axis", re.IGNORECASE),
+    re.compile(r"joystick", re.IGNORECASE),
+    re.compile(r"game_state", re.IGNORECASE),
+]
+
+def is_excluded_sample(sample_id: str, text: str) -> bool:
+    """Filter out video game movement/control vectors or off-domain non-language samples."""
+    id_str = str(sample_id) if sample_id is not None else ""
+    text_str = str(text) if text is not None else ""
+    for pat in EXCLUDED_PATTERNS:
+        if pat.search(id_str) or pat.search(text_str):
+            return True
+    return False
+
 def load_baseline_dataset(
     source_path: str = "source.parquet",
     micro_batch_size: int = 2500,
@@ -148,6 +167,13 @@ def load_hf_dataset(
                 df_raw["class"] = df_raw[label_col].astype(int) % 3
 
     df_raw["tweet"] = df_raw[text_col].astype(str)
+
+    # Apply Off-Domain Subset Exclusion Filter (e.g. video game control vectors / snake-v1 actions)
+    excluded_mask = [is_excluded_sample(sid, txt) for sid, txt in zip(df_raw["sample_id"], df_raw["tweet"])]
+    excluded_count = sum(excluded_mask)
+    if excluded_count > 0:
+        df_raw = df_raw[~pd.Series(excluded_mask, index=df_raw.index)].reset_index(drop=True)
+        print(f"[dataset_loader] Off-Domain Subset Filter: Filtered out {excluded_count} game-control / off-domain rows from '{dataset_name}' (Remaining: {len(df_raw)} rows).")
 
     # Experience Replay Sampling (30% ledger replay + 70% new unseen)
     if seen_ids and len(seen_ids) > 0 and replay_ratio > 0.0:
