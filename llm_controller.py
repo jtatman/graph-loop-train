@@ -6,6 +6,7 @@ to decide next training hyperparameters, dataset choices, or dataset search quer
 
 import json
 import os
+import re
 import requests
 from typing import Dict, Any, List, Optional
 
@@ -25,7 +26,7 @@ Loop Constraints:
    - 'dnagpt/laya-bio'
    - 'SargeDev/jev-distill-corpus-v3'
 
-You must respond ONLY with a valid JSON object matching this schema:
+IMPORTANT: Respond ONLY with a valid JSON object matching this schema. Do not output markdown or thinking tokens outside the JSON:
 {
   "action": "train" | "search_hf",
   "dataset_name": "<name of dataset to train on>",
@@ -36,6 +37,49 @@ You must respond ONLY with a valid JSON object matching this schema:
   "reasoning": "<short explanation of your decision>"
 }
 """
+
+def extract_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """Robustly extract JSON object from LLM response text, ignoring thinking tags or markdown code blocks."""
+    if not text or not isinstance(text, str):
+        return None
+
+    # 1. Look for ```json ... ``` code blocks first
+    if "```" in text:
+        blocks = text.split("```")
+        for b in blocks[1:]:
+            b_clean = b.strip()
+            if b_clean.startswith("json"):
+                b_clean = b_clean[4:].strip()
+            try:
+                data = json.loads(b_clean)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+
+    # 2. Extract JSON object {...} via regex (strips out <think>...</think> and commentary)
+    match = re.search(r"\{[^{}]*\"action\"[^{}]*\}", text, re.DOTALL)
+    if not match:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+
+    if match:
+        raw_json = match.group(0).strip()
+        try:
+            data = json.loads(raw_json)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    # 3. Fallback to direct json.loads on stripped text
+    try:
+        data = json.loads(text.strip())
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    return None
 
 def get_next_loop_decision(
     cycle: int,
@@ -63,7 +107,7 @@ Loop Constraints:
 2. Target candidate datasets allowed for domain '{domain}': {json.dumps(available_datasets)}
 3. You can vary dataset choice (MUST be one of the allowed target candidate datasets for '{domain}'), learning rate (1e-5 to 1e-4), epochs (3 to 10), or search HuggingFace for new datasets.
 
-You must respond ONLY with a valid JSON object matching this schema:
+IMPORTANT: Respond ONLY with a valid JSON object matching this schema:
 {{
   "action": "train" | "search_hf",
   "dataset_name": "<must be one of {json.dumps(available_datasets)}>",
@@ -92,22 +136,20 @@ Decide the next action for Cycle #{cycle}."""
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.3,
-        "max_tokens": 200,
+        "max_tokens": 1024,
     }
 
     try:
         response = requests.post(url, json=payload, timeout=req_timeout)
         if response.status_code == 200:
             data = response.json()
-            content = data["choices"][0]["message"]["content"].strip()
-            # Extract JSON if surrounded by markdown code blocks
-            if "```" in content:
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:].strip()
-            decision = json.loads(content)
-            print(f"[llm_controller] LLM Decision ({url}): {decision.get('reasoning')}")
-            return decision
+            raw_content = data["choices"][0]["message"]["content"].strip()
+            decision = extract_json_object(raw_content)
+            if decision and isinstance(decision, dict):
+                print(f"[llm_controller] LLM Decision ({url}): {decision.get('reasoning')}")
+                return decision
+            else:
+                print(f"[llm_controller] Warning: Could not extract valid JSON from LLM response ({url}). Raw: {raw_content[:150]}...")
         else:
             print(f"[llm_controller] LLM API status {response.status_code} ({url}): {response.text[:100]}")
     except Exception as e:
