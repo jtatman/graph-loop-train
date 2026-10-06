@@ -18,7 +18,7 @@ from train_runner import run_training_cycle
 DEFAULT_TARGET_CYCLES = 25
 DEFAULT_MAX_STAGNATION = 5
 DEFAULT_MICRO_BATCH_SIZE = 2500
-DEFAULT_GRAD_ACCUM_STEPS = 4
+DEFAULT_GRAD_ACCUM_STEPS = 2
 
 DOMAIN_TAXONOMY: Dict[str, List[str]] = {
     "distill": [
@@ -159,7 +159,7 @@ def run_graph_loop(
 
         hyperparams = {
             "lr": decision.get("lr", 3e-5),
-            "batch_size": decision.get("batch_size", 64),
+            "batch_size": decision.get("batch_size", 32),
             "epochs": decision.get("epochs", 6),
             "grad_accum_steps": decision.get("grad_accum_steps", DEFAULT_GRAD_ACCUM_STEPS),
         }

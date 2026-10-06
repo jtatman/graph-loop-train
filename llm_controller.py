@@ -33,7 +33,8 @@ IMPORTANT: Respond ONLY with a valid JSON object matching this schema. Do not ou
   "search_query": "<search query string if action is search_hf>",
   "lr": 3e-5,
   "epochs": 6,
-  "batch_size": 64,
+  "batch_size": 32,
+  "grad_accum_steps": 2,
   "reasoning": "<short explanation of your decision>"
 }
 """
@@ -131,7 +132,8 @@ IMPORTANT: Respond ONLY with a valid JSON object matching this schema:
   "search_query": "<search query string if action is search_hf>",
   "lr": 3e-5,
   "epochs": 6,
-  "batch_size": 64,
+  "batch_size": 32,
+  "grad_accum_steps": 2,
   "reasoning": "<short explanation of your decision>"
 }}
 """
@@ -192,7 +194,8 @@ Decide the next action for Cycle #{cycle}."""
         "search_query": "",
         "lr": lr,
         "epochs": epochs,
-        "batch_size": 64,
+        "batch_size": 32,
+        "grad_accum_steps": 2,
         "reasoning": f"Heuristic fallback for domain '{domain}': cycle {cycle} targeting dataset '{dataset}' with lr={lr}, epochs={epochs}.",
     }
 

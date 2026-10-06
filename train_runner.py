@@ -149,7 +149,7 @@ def validation_f1(head, items, cache, ids, pad_token_id, hidden_size, batch_size
 def train_head_micro_batch(
     agent, items, cache, hidden_size, fit_ids, val_ids, full_train_ids,
     lr, batch_size, max_epochs, has_soft_targets=False, domain: str = "distill",
-    grad_accum_steps: int = 4,
+    grad_accum_steps: int = 2,
 ):
     seed()
     head = Head(agent.model)
@@ -291,7 +291,7 @@ def evaluate_fixed_benchmark(agent, tuned_head) -> dict:
     }
 
 # Module-level PyTorch CPU thread configuration (called once on import)
-_num_threads = min(4, os.cpu_count() or 2)
+_num_threads = min(2, int(os.getenv("OMP_NUM_THREADS", "2")))
 torch.set_num_threads(_num_threads)
 try:
     torch.set_num_interop_threads(1)
@@ -317,9 +317,9 @@ def run_training_cycle(
     cycle_out.mkdir(parents=True, exist_ok=True)
 
     lr = hyperparams.get("lr", 3e-5)
-    batch_size = hyperparams.get("batch_size", 64)
+    batch_size = hyperparams.get("batch_size", 32)
     epochs = hyperparams.get("epochs", 6)
-    grad_accum_steps = hyperparams.get("grad_accum_steps", 4)
+    grad_accum_steps = hyperparams.get("grad_accum_steps", 2)
 
     # Load micro-batch dataset
     print(f"\n[cycle {cycle_id:03d}] Loading micro-batch (max {micro_batch_size} samples) from dataset '{dataset_name}'...")
