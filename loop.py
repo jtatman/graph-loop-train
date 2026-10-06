@@ -22,15 +22,10 @@ DEFAULT_GRAD_ACCUM_STEPS = 4
 
 DOMAIN_TAXONOMY: Dict[str, List[str]] = {
     "distill": [
+        "data/curated_distillation_dataset.parquet",
+        "avbiswas/bev-decision",
         "SargeDev/jev-distill-corpus-v3",
         "tasksource/tasksource-jev-typed-decisions",
-        "ZefanCai/Open-Jev",
-        "avbiswas/bev-decision",
-    ],
-    "bio": [
-        "dnagpt/laya-bio",
-        "camel-ai/biology",
-        "just-dna-seq/annotators",
     ],
     "sentiment": [
         "zeroshot/twitter-financial-news-sentiment",
@@ -310,8 +305,8 @@ def run_sequential_pipeline(
     max_cycles: int = DEFAULT_TARGET_CYCLES,
     micro_batch_size: int = DEFAULT_MICRO_BATCH_SIZE,
 ):
-    """Executes full sequential pipeline: Distillation -> Bio -> Sentiment -> Agent."""
-    pipeline = ["distill", "bio", "sentiment", "agent"]
+    """Executes full sequential pipeline: Distillation -> Sentiment -> Agent."""
+    pipeline = ["distill", "sentiment", "agent"]
     print("=" * 70)
     print("LAUNCHING SEQUENTIAL TASK-ISOLATED TRAINING PIPELINE")
     print(f"Pipeline Order: {' -> '.join(pipeline)}")

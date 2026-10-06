@@ -16,7 +16,7 @@ from loop import DEFAULT_TARGET_CYCLES, DEFAULT_MICRO_BATCH_SIZE, DOMAIN_TAXONOM
 def main():
     parser = argparse.ArgumentParser(description="Graph-Tracked Training Loop & Meta-Governor for Laya Model.")
     parser.add_argument("--domain", type=str, default="distill", choices=list(DOMAIN_TAXONOMY.keys()), help="Target domain taxonomy to fine-tune.")
-    parser.add_argument("--pipeline", action="store_true", help="Execute full sequential meta-pipeline across all domains (distill -> bio -> sentiment -> agent).")
+    parser.add_argument("--pipeline", action="store_true", help="Execute full sequential meta-pipeline across all domains (distill -> sentiment -> agent).")
     parser.add_argument("--max-cycles", type=int, default=DEFAULT_TARGET_CYCLES, help="Target max cycles per inner pass.")
     parser.add_argument("--micro-batch", type=int, default=DEFAULT_MICRO_BATCH_SIZE, help="Initial micro-batch size in samples per cycle.")
     parser.add_argument("--max-meta-passes", type=int, default=MAX_META_PASSES, help="Max meta-governor restarts per domain.")

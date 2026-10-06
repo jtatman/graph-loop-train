@@ -99,28 +99,33 @@ def load_hf_dataset(
     if dataset_name.lower() in ("baseline", "default", "tdavidson/hate_speech_offensive"):
         return load_baseline_dataset(micro_batch_size=micro_batch_size, seen_ids=seen_ids, replay_ratio=replay_ratio)
 
-    from datasets import load_dataset, get_dataset_config_names
-    print(f"[dataset_loader] Loading HF dataset: '{dataset_name}'...")
+    df_raw = None
+    if dataset_name.endswith(".parquet") or Path(dataset_name).exists():
+        print(f"[dataset_loader] Loading local dataset parquet: '{dataset_name}'...")
+        df_raw = pd.read_parquet(dataset_name)
+    else:
+        from datasets import load_dataset, get_dataset_config_names
+        print(f"[dataset_loader] Loading HF dataset: '{dataset_name}'...")
 
-    # Auto-resolve dataset config if missing
-    config_name = None
-    try:
-        cfgs = get_dataset_config_names(dataset_name)
-        if cfgs and len(cfgs) > 0:
-            config_name = cfgs[0]
-            print(f"[dataset_loader] Auto-selected dataset config '{config_name}' for '{dataset_name}'.")
-    except Exception:
-        pass
+        # Auto-resolve dataset config if missing
+        config_name = None
+        try:
+            cfgs = get_dataset_config_names(dataset_name)
+            if cfgs and len(cfgs) > 0:
+                config_name = cfgs[0]
+                print(f"[dataset_loader] Auto-selected dataset config '{config_name}' for '{dataset_name}'.")
+        except Exception:
+            pass
 
-    try:
-        if config_name:
-            ds = load_dataset(dataset_name, config_name, split="train")
-        else:
-            ds = load_dataset(dataset_name, split="train")
-        df_raw = ds.to_pandas()
-    except Exception as e:
-        print(f"[dataset_loader] ERROR: Failed to load HF dataset '{dataset_name}' ({e}).")
-        raise RuntimeError(f"Dataset '{dataset_name}' failed to load: {e}")
+        try:
+            if config_name:
+                ds = load_dataset(dataset_name, config_name, split="train")
+            else:
+                ds = load_dataset(dataset_name, split="train")
+            df_raw = ds.to_pandas()
+        except Exception as e:
+            print(f"[dataset_loader] ERROR: Failed to load HF dataset '{dataset_name}' ({e}).")
+            raise RuntimeError(f"Dataset '{dataset_name}' failed to load: {e}")
 
     # Generate or extract persistent sample_ids
     if "id" in df_raw.columns:
@@ -159,12 +164,16 @@ def load_hf_dataset(
                 label_col = col
                 break
         if label_col is None:
-            df_raw["class"] = 0
+            raise ValueError(f"Dataset '{dataset_name}' lacks structured decision labels or probability distributions with columns {df_raw.columns.tolist()}. Rejecting unformatted dataset.")
+        
+        if pd.api.types.is_numeric_dtype(df_raw[label_col]):
+            df_raw["class"] = df_raw[label_col].astype(int) % 3
         else:
-            if not pd.api.types.is_numeric_dtype(df_raw[label_col]):
-                df_raw["class"] = pd.Categorical(df_raw[label_col]).codes % 3
-            else:
-                df_raw["class"] = df_raw[label_col].astype(int) % 3
+            # Verify string values represent discrete categorical choices (max 20 unique categories)
+            unique_vals = df_raw[label_col].dropna().unique()
+            if len(unique_vals) > 25:
+                raise ValueError(f"Column '{label_col}' in '{dataset_name}' contains {len(unique_vals)} unique values (unstructured text). Rejecting non-categorical dataset.")
+            df_raw["class"] = pd.Categorical(df_raw[label_col]).codes % 3
 
     df_raw["tweet"] = df_raw[text_col].astype(str)
 

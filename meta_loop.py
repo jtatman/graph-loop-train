@@ -156,7 +156,7 @@ def run_sequential_meta_pipeline(
     max_meta_passes: int = MAX_META_PASSES,
 ):
     """Executes Meta-Loop Governor sequentially across all task domains."""
-    pipeline = ["distill", "bio", "sentiment", "agent"]
+    pipeline = ["distill", "sentiment", "agent"]
     print("=" * 80)
     print("LAUNCHING SEQUENTIAL META-PIPELINE GOVERNOR")
     print(f"Domain Order: {' -> '.join(pipeline)}")

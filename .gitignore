@@ -7,6 +7,7 @@
 *.gate.lock*
 
 # Python & Environment
+.env
 .venv/
 .uv_cache/
 .uv_python/
@@ -16,7 +17,10 @@ __pycache__/
 # Model & Training Data
 output/
 checkpoints/
+output_legacy_bak/
+checkpoints_legacy_bak/
 base_model/
+data/
 source.parquet
 *.safetensors
 *.parquet

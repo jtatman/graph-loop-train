@@ -22,8 +22,8 @@ Loop Constraints:
 1. The model architecture, training software, and evaluation set are static.
 2. You can vary dataset choices, learning rate (1e-5 to 1e-4), epochs (3 to 10), and search HuggingFace for new datasets.
 3. Available primary datasets:
-   - 'tdavidson/hate_speech_offensive' (baseline benchmark)
-   - 'dnagpt/laya-bio'
+   - 'data/curated_distillation_dataset.parquet'
+   - 'avbiswas/bev-decision'
    - 'SargeDev/jev-distill-corpus-v3'
 
 IMPORTANT: Respond ONLY with a valid JSON object matching this schema. Do not output markdown or thinking tokens outside the JSON:
@@ -201,7 +201,7 @@ if __name__ == "__main__":
         cycle=1,
         history=[],
         best_macro_f1=0.75,
-        available_datasets=["tdavidson/hate_speech_offensive", "dnagpt/laya-bio", "SargeDev/jev-distill-corpus-v3"],
+        available_datasets=["data/curated_distillation_dataset.parquet", "avbiswas/bev-decision", "SargeDev/jev-distill-corpus-v3"],
     )
     print("Decision Output:")
     print(json.dumps(test_decision, indent=2))
