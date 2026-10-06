@@ -91,7 +91,7 @@ def curate_dataset_sources(output_path: str = "data/curated_distillation_dataset
             if is_excluded_sample(sample_id, raw_text):
                 continue
 
-            clean_text = re.sub(r"\s+", " ", raw_text).strip()
+            clean_text = re.sub(r"\s+", " ", raw_text).strip()[:1500]
             if len(clean_text) < 15 or clean_text.casefold() in seen_texts:
                 continue
 

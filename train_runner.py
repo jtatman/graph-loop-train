@@ -363,7 +363,8 @@ def run_training_cycle(
     print(f"[cycle {cycle_id:03d}] Tokenizing & building sequence inputs...")
     items = []
     for i, row in tqdm(df.iterrows(), total=len(df), desc="[Tokenizing]", unit="row"):
-        ids, markers = build_sequence(agent.tok, row.tweet, QUESTION, 512, 192)
+        text_str = str(row.tweet)[:1500] if row.tweet is not None else ""
+        ids, markers = build_sequence(agent.tok, text_str, QUESTION, 512, 192)
         items.append({
             "ids": ids,
             "markers": markers,
