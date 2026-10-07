@@ -344,7 +344,10 @@ def run_training_cycle(
         val = training[::4]
         fit = [i for i in training if i not in val]
 
-    splits = {"train": training.tolist(), "test": test.tolist(), "fit": fit.tolist(), "validation": val.tolist()}
+    def _to_list(arr):
+        return arr.tolist() if hasattr(arr, "tolist") else list(arr)
+
+    splits = {"train": _to_list(training), "test": _to_list(test), "fit": _to_list(fit), "validation": _to_list(val)}
     (cycle_out / "split.json").write_text(json.dumps(splits))
 
     # Download base model snapshot
