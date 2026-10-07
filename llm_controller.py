@@ -28,7 +28,7 @@ Loop Constraints:
 
 IMPORTANT: Respond ONLY with a valid JSON object matching this schema. Do not output markdown or thinking tokens outside the JSON:
 {
-  "action": "train" | "search_hf",
+  "action": "train" | "search_hf" | "finalize_domain",
   "dataset_name": "<name of dataset to train on>",
   "search_query": "<search query string if action is search_hf>",
   "lr": 3e-5,
@@ -37,6 +37,7 @@ IMPORTANT: Respond ONLY with a valid JSON object matching this schema. Do not ou
   "grad_accum_steps": 2,
   "reasoning": "<short explanation of your decision>"
 }
+NOTE: If all available datasets for domain are in overfitting/stagnation risk (3+ consecutive rejections) and search_hf returns no results, output action="finalize_domain" to transition to the next domain.
 """
 
 def extract_json_object(text: str) -> Optional[Dict[str, Any]]:
@@ -181,7 +182,21 @@ Decide the next action for Cycle #{cycle}."""
     # Heuristic fallback strategy: Prioritize datasets with lowest consecutive rejections
     candidate_datasets = [d for d in available_datasets if d not in overfitting_datasets]
     if not candidate_datasets:
-        candidate_datasets = available_datasets if available_datasets else ["SargeDev/jev-distill-corpus-v3"]
+        # Check if all candidate datasets are in overfitting risk
+        recent_rejections = sum(1 for r in history[-5:] if r.get("status") in ("REJECTED", "FAILED"))
+        if recent_rejections >= 3 or cycle >= 5:
+            print(f"[llm_controller] Stagnant Path Trigger: All candidate datasets for domain '{domain}' are in overfitting risk ({len(overfitting_datasets)} datasets). Finalizing domain.")
+            return {
+                "action": "finalize_domain",
+                "dataset_name": "",
+                "search_query": "",
+                "lr": 3e-5,
+                "epochs": 6,
+                "batch_size": 32,
+                "grad_accum_steps": 2,
+                "reasoning": f"All candidate datasets for domain '{domain}' are in overfitting risk (3+ consecutive rejections) with no recent F1 improvement. Finalizing domain early to prevent compute waste.",
+            }
+        candidate_datasets = available_datasets if available_datasets else ["data/curated_distillation_dataset.parquet"]
 
     dataset = candidate_datasets[(cycle - 1) % len(candidate_datasets)]
     lrs = [3e-5, 5e-5, 2e-5]

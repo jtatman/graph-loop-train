@@ -86,7 +86,11 @@ def run_meta_loop(
         next_max_stagnation = current_max_stagnation
         pass_action = "CONTINUE"
 
-        if exit_reason == "STAGNATED_EARLY":
+        if exit_reason in ("STAGNATION_FINALIZED", "STAGNANT_PATH_FINALIZED") or (exit_reason == "STAGNATED_EARLY" and accepted_cycles == 0):
+            print(f"[meta_governor] CARDINAL EXIT: Stagnant optimization path detected for domain '{domain}' (0 accepted cycles / all datasets in overfitting risk). Finalizing domain early and auto-advancing pipeline.")
+            pass_action = "TERMINATE_STAGNANT_PATH"
+
+        elif exit_reason == "STAGNATED_EARLY":
             if current_micro_batch < MAX_MICRO_BATCH_CEILING:
                 next_micro_batch = min(MAX_MICRO_BATCH_CEILING, current_micro_batch + MICRO_BATCH_INCREMENT)
                 print(f"[meta_governor] Early Stagnation in Meta-Pass #{meta_pass}. Auto-scaling micro-batch (+{MICRO_BATCH_INCREMENT}): {current_micro_batch} -> {next_micro_batch}")

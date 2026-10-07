@@ -212,7 +212,9 @@ def train_head_micro_batch(
                 best, best_epoch, stale = score, epoch, 0
             else:
                 stale += 1
-            if stale >= 2:
+            if stale >= 2 or (epoch >= 2 and score <= 0.05):
+                if epoch >= 2 and score <= 0.05:
+                    print(f"[train_runner] Stagnant validation score ({score:.4f}) after epoch {epoch}. Aborting epoch tuning early.")
                 break
         else:
             best_epoch = max_epochs

@@ -142,6 +142,12 @@ def run_graph_loop(
 
         action = decision.get("action", "train")
 
+        if action == "finalize_domain":
+            print(f"[loop] LLM Governor issued 'finalize_domain' for domain '{domain}': {decision.get('reasoning')}")
+            consecutive_stagnation = max_stagnation
+            exit_reason = "STAGNANT_PATH_FINALIZED"
+            break
+
         if action == "search_hf" and decision.get("search_query"):
             query = decision["search_query"]
             print(f"[loop] LLM requested HF dataset search for query: '{query}'...")
@@ -267,7 +273,7 @@ def run_graph_loop(
             break
 
     exit_reason = "TARGET_REACHED"
-    if consecutive_stagnation >= max_stagnation:
+    if consecutive_stagnation >= max_stagnation and exit_reason != "STAGNANT_PATH_FINALIZED":
         exit_reason = "STAGNATED_EARLY"
 
     accepted_cycles = sum(1 for r in cycle_history if r.get("status") == "ACCEPTED")
