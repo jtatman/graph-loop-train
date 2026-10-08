@@ -28,11 +28,13 @@ DOMAIN_TAXONOMY: Dict[str, List[str]] = {
         "tasksource/tasksource-jev-typed-decisions",
     ],
     "sentiment": [
+        "data/curated_sentiment_dataset.parquet",
         "zeroshot/twitter-financial-news-sentiment",
         "FinGPT/fingpt-sentiment-train",
         "Jean-Baptiste/financial_news_sentiment",
     ],
     "agent": [
+        "data/curated_agent_dataset.parquet",
         "MaziyarPanahi/AgentToolDecisions-180K",
         "Team-ACE/ToolACE",
         "lockon/glaive_toolcall_en",

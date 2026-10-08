@@ -42,6 +42,62 @@ def is_excluded_sample(sample_id: str, text: str) -> bool:
             return True
     return False
 
+def normalize_specialty_labels(df_raw: pd.DataFrame, dataset_name: str, text_col: str, label_col: str) -> pd.DataFrame:
+    """
+    Explicit Schema Normalizer for HuggingFace sentiment/agent datasets.
+    Prevents supervisory label code inversion (e.g. zeroshot vs FinGPT).
+    Target mapping:
+      - Sentiment: 0 = Positive/Bullish, 1 = Negative/Bearish, 2 = Neutral
+      - Agent: 0 = Pass/Select, 1 = Fail/Reject, 2 = Fallback
+    """
+    name_lower = dataset_name.lower()
+
+    # If dataset already contains valid integer 'class' column in [0, 1, 2]
+    if "class" in df_raw.columns and set(df_raw["class"].dropna().unique()).issubset({0, 1, 2}):
+        df_raw["class"] = df_raw["class"].astype(int)
+        return df_raw
+
+    # zeroshot raw: 0=Bearish, 1=Bullish, 2=Neutral -> target: 0=Bullish/Pos, 1=Bearish/Neg, 2=Neutral
+    if "zeroshot/twitter-financial-news-sentiment" in name_lower:
+        mapping = {0: 1, 1: 0, 2: 2}
+        df_raw["class"] = df_raw[label_col].map(mapping).fillna(2).astype(int)
+        return df_raw
+
+    # Sentiment string vocabulary mapping
+    if any(k in name_lower for k in ["fingpt", "jean-baptiste", "sentiment", "news"]):
+        def map_sent(val):
+            s = str(val).lower()
+            if "pos" in s or "bull" in s:
+                return 0
+            if "neg" in s or "bear" in s:
+                return 1
+            return 2
+        df_raw["class"] = df_raw[label_col].apply(map_sent).astype(int)
+        return df_raw
+
+    # Agent/Tool vocabulary mapping
+    if any(k in name_lower for k in ["tool", "agent", "action"]):
+        def map_agent(val):
+            s = str(val).lower()
+            if "pass" in s or "select" in s or "true" in s:
+                return 0
+            if "fail" in s or "reject" in s or "false" in s or "error" in s:
+                return 1
+            return 2
+        df_raw["class"] = df_raw[label_col].apply(map_agent).astype(int)
+        return df_raw
+
+    # Numeric default fallback
+    if pd.api.types.is_numeric_dtype(df_raw[label_col]):
+        df_raw["class"] = df_raw[label_col].astype(int) % 3
+    else:
+        unique_vals = df_raw[label_col].dropna().unique()
+        if len(unique_vals) > 25:
+            raise ValueError(f"Column '{label_col}' in '{dataset_name}' contains {len(unique_vals)} unique values (unstructured text). Rejecting non-categorical dataset.")
+        df_raw["class"] = pd.Categorical(df_raw[label_col]).codes % 3
+
+    return df_raw
+
 def load_baseline_dataset(
     source_path: str = "source.parquet",
     micro_batch_size: int = 2500,
@@ -166,14 +222,7 @@ def load_hf_dataset(
         if label_col is None:
             raise ValueError(f"Dataset '{dataset_name}' lacks structured decision labels or probability distributions with columns {df_raw.columns.tolist()}. Rejecting unformatted dataset.")
         
-        if pd.api.types.is_numeric_dtype(df_raw[label_col]):
-            df_raw["class"] = df_raw[label_col].astype(int) % 3
-        else:
-            # Verify string values represent discrete categorical choices (max 20 unique categories)
-            unique_vals = df_raw[label_col].dropna().unique()
-            if len(unique_vals) > 25:
-                raise ValueError(f"Column '{label_col}' in '{dataset_name}' contains {len(unique_vals)} unique values (unstructured text). Rejecting non-categorical dataset.")
-            df_raw["class"] = pd.Categorical(df_raw[label_col]).codes % 3
+        df_raw = normalize_specialty_labels(df_raw, dataset_name, text_col, label_col)
 
     df_raw["tweet"] = df_raw[text_col].astype(str)
 
