@@ -34,24 +34,36 @@ def search_datasets_cli(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     # Fallback to Python API
     return search_datasets_api(query, limit)
 
+NON_ENGLISH_KEYWORDS = ["persian", "chinese", "arabic", "russian", "spanish", "french", "german", "japanese", "korean", "italian", "portuguese", "turkish", "vietnamese", "farsi", "hindi"]
+
 def search_datasets_api(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
-    Search HuggingFace Hub using huggingface_hub Python API.
+    Search HuggingFace Hub using huggingface_hub Python API with strict English filtering.
     """
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     api = HfApi(token=token)
     try:
-        datasets = list(api.list_datasets(search=query, limit=limit, full=False))
+        datasets = list(api.list_datasets(search=query, limit=limit * 3, full=False))
         results = []
         for ds in datasets:
+            ds_id_lower = ds.id.lower()
+            if any(lang in ds_id_lower for lang in NON_ENGLISH_KEYWORDS):
+                continue
+            tags = getattr(ds, "tags", []) or []
+            # Skip if tagged explicitly with non-en language tag
+            if any(t.startswith("language:") and not t.endswith(":en") for t in tags):
+                continue
+
             results.append({
                 "dataset_id": ds.id,
                 "author": getattr(ds, "author", ""),
                 "last_modified": str(getattr(ds, "lastModified", "")),
-                "tags": getattr(ds, "tags", []),
+                "tags": tags,
                 "downloads": getattr(ds, "downloads", 0),
                 "likes": getattr(ds, "likes", 0),
             })
+            if len(results) >= limit:
+                break
         return results
     except Exception as e:
         print(f"[hf_search] API search error: {e}")

@@ -33,13 +33,25 @@ EXCLUDED_PATTERNS = [
     re.compile(r"game_state", re.IGNORECASE),
 ]
 
+def is_english_text(text: str) -> bool:
+    """Check if text is predominantly English / Latin script (>85% ASCII chars)."""
+    if not text or not isinstance(text, str):
+        return False
+    clean_text = "".join(text.split())
+    if not clean_text:
+        return False
+    ascii_count = sum(1 for c in clean_text if ord(c) < 128)
+    return (ascii_count / len(clean_text)) >= 0.85
+
 def is_excluded_sample(sample_id: str, text: str) -> bool:
-    """Filter out video game movement/control vectors or off-domain non-language samples."""
+    """Filter out video game movement/control vectors, off-domain, or non-English samples."""
     id_str = str(sample_id) if sample_id is not None else ""
     text_str = str(text) if text is not None else ""
     for pat in EXCLUDED_PATTERNS:
         if pat.search(id_str) or pat.search(text_str):
             return True
+    if not is_english_text(text_str):
+        return True
     return False
 
 def normalize_specialty_labels(df_raw: pd.DataFrame, dataset_name: str, text_col: str, label_col: str) -> pd.DataFrame:
