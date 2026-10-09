@@ -20,24 +20,20 @@ Your goal: Maximize the model's macro F1 score on a gold classification benchmar
 
 Loop Constraints:
 1. The model architecture, training software, and evaluation set are static.
-2. You can vary dataset choices, learning rate (1e-5 to 1e-4), epochs (3 to 10), and search HuggingFace for new datasets.
-3. Available primary datasets:
-   - 'data/curated_distillation_dataset.parquet'
-   - 'avbiswas/bev-decision'
-   - 'SargeDev/jev-distill-corpus-v3'
+2. You can vary dataset choices within the domain taxonomy, learning rate (1e-5 to 1e-4), and epochs (3 to 10).
+3. If all datasets in the domain taxonomy are in overfitting/stagnation risk (3+ consecutive rejections without F1 improvement), output action="finalize_domain" to transition immediately to the next domain.
 
 IMPORTANT: Respond ONLY with a valid JSON object matching this schema. Do not output markdown or thinking tokens outside the JSON:
 {
-  "action": "train" | "search_hf" | "finalize_domain",
+  "action": "train" | "finalize_domain",
   "dataset_name": "<name of dataset to train on>",
-  "search_query": "<search query string if action is search_hf>",
+  "search_query": "",
   "lr": 3e-5,
   "epochs": 6,
   "batch_size": 32,
   "grad_accum_steps": 2,
   "reasoning": "<short explanation of your decision>"
 }
-NOTE: If all available datasets for domain are in overfitting/stagnation risk (3+ consecutive rejections) and search_hf returns no results, output action="finalize_domain" to transition to the next domain.
 """
 
 def extract_json_object(text: str) -> Optional[Dict[str, Any]]:
@@ -124,13 +120,13 @@ Loop Constraints:
 1. Active Domain: '{domain}'
 2. Target candidate datasets allowed for domain '{domain}': {json.dumps(available_datasets)}
 3. Overfitting / Stagnation Risk Datasets (3+ consecutive rejections): {json.dumps(overfitting_datasets)}
-4. CRITICAL: Avoid choosing datasets in Overfitting Risk! If all candidate datasets are overfitted or stagnating, issue a "search_hf" action to find fresh task datasets.
+4. CRITICAL: If all candidate datasets for domain '{domain}' are in Overfitting Risk (3+ consecutive rejections without F1 improvement), output action="finalize_domain" to conclude this domain and transition to the next domain. Do NOT search for un-curated external datasets.
 
 IMPORTANT: Respond ONLY with a valid JSON object matching this schema:
 {{
-  "action": "train" | "search_hf",
+  "action": "train" | "finalize_domain",
   "dataset_name": "<must be one of {json.dumps(available_datasets)}>",
-  "search_query": "<search query string if action is search_hf>",
+  "search_query": "",
   "lr": 3e-5,
   "epochs": 6,
   "batch_size": 32,
